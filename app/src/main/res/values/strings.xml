@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">VoiceGrowth</string>
+    <string name="channel_processing_name">Transcript Processing</string>
+    <string name="channel_processing_desc">Notifications for ongoing transcription and Drive sync</string>
+    <string name="channel_recording_name">Discussion Recording</string>
+    <string name="channel_recording_desc">Notifications when recording bedside or academic discussions</string>
+</resources>
