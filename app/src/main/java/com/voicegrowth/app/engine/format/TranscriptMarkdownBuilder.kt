@@ -11,11 +11,7 @@ object TranscriptMarkdownBuilder {
     private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
     private val FILE_DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
 
-    fun formatDuration(seconds: Long): String {
-        val min = seconds / 60
-        val sec = seconds % 60
-        return String.format(Locale.US, "%02d:%02d", min, sec)
-    }
+    fun formatDuration(seconds: Long): String = String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60)
 
     fun buildMarkdown(
         recordedAtMillis: Long,
@@ -29,19 +25,16 @@ object TranscriptMarkdownBuilder {
         aiSynthesis: AiSynthesisResult? = null,
         aiWarning: String? = null
     ): String {
-        val dateStr = DATE_FORMAT.format(Date(recordedAtMillis))
         val sourceLabel = when (source) {
             RecordingSource.CALL_RECORDING -> "Phone call"
             RecordingSource.MANUAL_DISCUSSION -> "Bedside/Academic Discussion"
             RecordingSource.VOICE_REFLECTION -> "Voice Reflection"
+            RecordingSource.IMPORTED_AUDIO -> "Imported Audio"
         }
-        val themes = detectedThemes.ifEmpty { listOf("Unclassified clinical conversation") }
-            .joinToString("\n") { "- $it" }
+        val themes = detectedThemes.ifEmpty { listOf("Unclassified clinical conversation") }.joinToString("\n") { "- $it" }
         val redactions = if (deidResult.identifiersDetectedCount > 0) {
             "${deidResult.identifiersDetectedCount} pattern match(es): ${deidResult.detectedIdentifierTypes.joinToString(", ")}"
-        } else {
-            "No pattern-based identifiers detected"
-        }
+        } else "No pattern-based identifiers detected"
         val aiSection = when {
             aiSynthesis != null -> """
 
@@ -65,9 +58,8 @@ The source transcript remains available below and can be reprocessed after the A
 """
             else -> ""
         }
-
         return """
-# Conversation $dateStr
+# Conversation ${DATE_FORMAT.format(Date(recordedAtMillis))}
 
 - Source: $sourceLabel
 - Duration: ${formatDuration(durationSeconds)}
@@ -92,17 +84,13 @@ Privacy screen:
 """.trimIndent()
     }
 
-    fun generateFileName(
-        recordedAtMillis: Long,
-        source: RecordingSource,
-        recordingId: Long? = null
-    ): String {
+    fun generateFileName(recordedAtMillis: Long, source: RecordingSource, recordingId: Long? = null): String {
         val prefix = when (source) {
             RecordingSource.CALL_RECORDING -> "call"
             RecordingSource.MANUAL_DISCUSSION -> "discussion"
             RecordingSource.VOICE_REFLECTION -> "reflection"
+            RecordingSource.IMPORTED_AUDIO -> "imported"
         }
-        val uniqueSuffix = recordingId?.let { "_r$it" }.orEmpty()
-        return "transcript_${prefix}_${FILE_DATE_FORMAT.format(Date(recordedAtMillis))}$uniqueSuffix.md"
+        return "transcript_${prefix}_${FILE_DATE_FORMAT.format(Date(recordedAtMillis))}${recordingId?.let { "_r$it" }.orEmpty()}.md"
     }
 }

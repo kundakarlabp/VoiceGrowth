@@ -49,7 +49,7 @@ class AudioRecordingService : Service() {
         startForeground(NOTIFICATION_ID, notification("Recording discussion…"))
         try {
             val dir = File(getExternalFilesDir(null), "manual_recordings").apply { mkdirs() }
-            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
             val file = File(dir, "REC_$stamp.m4a")
             val next = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this) else {
                 @Suppress("DEPRECATION") MediaRecorder()
@@ -67,7 +67,9 @@ class AudioRecordingService : Service() {
             outputFile = file
             recorder = next
             startedAt = System.currentTimeMillis()
+            RecordingStateStore.setRecording(this, true)
         } catch (_: Exception) {
+            RecordingStateStore.setRecording(this, false)
             releaseRecorder()
             outputFile?.delete()
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -77,12 +79,14 @@ class AudioRecordingService : Service() {
 
     private fun stopRecording() {
         if (recorder == null) {
+            RecordingStateStore.setRecording(this, false)
             stopSelf()
             return
         }
         val duration = ((System.currentTimeMillis() - startedAt) / 1_000L).coerceAtLeast(0L)
         val stoppedCleanly = runCatching { recorder?.stop() }.isSuccess
         releaseRecorder()
+        RecordingStateStore.setRecording(this, false)
         val file = outputFile
 
         if (stoppedCleanly && file != null && file.exists() && file.length() > 0L && duration >= 3L) {
@@ -112,6 +116,7 @@ class AudioRecordingService : Service() {
             file.delete()
         }
 
+        outputFile = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -123,6 +128,7 @@ class AudioRecordingService : Service() {
     }
 
     override fun onDestroy() {
+        RecordingStateStore.setRecording(this, false)
         releaseRecorder()
         scope.cancel()
         super.onDestroy()

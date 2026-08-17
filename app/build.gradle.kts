@@ -24,9 +24,8 @@ android {
         applicationId = "com.voicegrowth.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.2.0"
-
+        versionCode = 5
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -47,10 +46,7 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             signingConfigs.findByName("release")?.let { signingConfig = it }
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
@@ -60,10 +56,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-
-    packaging {
-        resources.excludes += "/META-INF/{AL2.0,LGPL2.1,DEPENDENCIES,INDEX.LIST}"
-    }
+    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1,DEPENDENCIES,INDEX.LIST}" }
 }
 
 dependencies {
@@ -79,26 +72,20 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.documentfile)
-
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.datastore.preferences)
-
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
-
     implementation(libs.play.services.auth)
     implementation(libs.google.api.client.android)
     implementation(libs.google.http.client.android)
     implementation(libs.google.http.client.gson)
     implementation(libs.google.api.services.drive)
-
     implementation(libs.litertlm)
-
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }

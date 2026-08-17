@@ -3,6 +3,7 @@ package com.voicegrowth.app.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,19 +29,13 @@ class MainActivity : ComponentActivity() {
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         startMonitorService()
-        if (hasRecordAudioPermission()) {
-            (application as VoiceGrowthApplication).enqueueAudioProcessing()
-        }
+        if (hasRecordAudioPermission()) (application as VoiceGrowthApplication).enqueueAudioProcessing()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val required = buildList {
-            // Android SpeechRecognizer requires RECORD_AUDIO even when a pre-opened audio source is supplied.
-            add(Manifest.permission.RECORD_AUDIO)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        permissions.launch(required.toTypedArray())
+        requestMissingPermissions()
+        handleIncomingAudio(intent)
 
         setContent {
             VoiceGrowthTheme {
@@ -53,11 +48,51 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_REQUEST_MIC_PERMISSION, false)) requestMissingPermissions()
+        handleIncomingAudio(intent)
+    }
+
+    private fun requestMissingPermissions() {
+        val missing = buildList {
+            if (!hasRecordAudioPermission()) add(Manifest.permission.RECORD_AUDIO)
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray()) else startMonitorService()
+    }
+
+    private fun handleIncomingAudio(incoming: Intent?) {
+        val action = incoming?.action ?: return
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
+        val uris = sharedAudioUris(incoming)
+        incoming.action = null
+        if (uris.isNotEmpty()) homeViewModel.importAudioUris(uris)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun sharedAudioUris(intent: Intent): List<Uri> = when (intent.action) {
+        Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
+        Intent.ACTION_SEND_MULTIPLE ->
+            (intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM) ?: arrayListOf()).toList()
+        else -> emptyList()
+    }
+
     private fun hasRecordAudioPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun startMonitorService() {
         val intent = Intent(this, RecordingMonitorService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+    }
+
+    companion object {
+        const val EXTRA_REQUEST_MIC_PERMISSION = "request_mic_permission"
     }
 }

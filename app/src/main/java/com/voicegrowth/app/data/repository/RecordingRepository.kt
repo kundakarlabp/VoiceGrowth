@@ -17,6 +17,8 @@ class RecordingRepository(
     suspend fun insertRecording(recording: RecordingEntity): Long = dao.insert(recording)
     suspend fun getByUri(uri: String): RecordingEntity? = dao.getByUri(uri)
     suspend fun getById(id: Long): RecordingEntity? = dao.getById(id)
+    suspend fun getRecordingsBetween(startMillis: Long, endMillis: Long): List<RecordingEntity> =
+        dao.getRecordingsBetween(startMillis, endMillis)
     suspend fun getPendingRecordings(): List<RecordingEntity> = dao.getPendingRecordings()
     suspend fun getSyncCandidates(): List<RecordingEntity> = dao.getSyncCandidates()
     suspend fun getCompletedOlderThan(timestamp: Long): List<RecordingEntity> = dao.getCompletedOlderThan(timestamp)

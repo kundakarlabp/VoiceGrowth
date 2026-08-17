@@ -15,6 +15,7 @@ data class AppSettings(
     val aiModelPath: String? = null,
     val aiModelDisplayName: String? = null,
     val aiPreferredBackend: String = "gpu",
+    val dailyDigestEnabled: Boolean = false,
     val selectedFolderUri: String? = null,
     val selectedFolderDisplayName: String? = null,
     val googleAccountEmail: String? = null
