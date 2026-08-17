@@ -43,7 +43,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setTranscriptionLanguage(v: String) = viewModelScope.launch { store.setTranscriptionLanguage(v) }
     fun setDriveFolderHierarchy(v: String) = viewModelScope.launch { store.setDriveFolderHierarchy(v) }
     fun setClinicalPrivacyMode(v: Boolean) = viewModelScope.launch { store.setClinicalPrivacyMode(v) }
-    fun setDailyDigestEnabled(v: Boolean) = viewModelScope.launch { store.setDailyDigestEnabled(v) }
+
+    fun setDailyDigestEnabled(v: Boolean) = viewModelScope.launch {
+        val current = settingsState.value
+        if (v && (!current.aiEnabled || current.aiModelPath.isNullOrBlank())) {
+            _aiMessage.value = "Enable on-device AI and import a model before enabling the daily digest"
+            return@launch
+        }
+        store.setDailyDigestEnabled(v)
+    }
 
     fun setAiEnabled(v: Boolean) = viewModelScope.launch {
         if (v && settingsState.value.aiModelPath.isNullOrBlank()) {
@@ -51,6 +59,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             return@launch
         }
         store.setAiEnabled(v)
+        if (!v) store.setDailyDigestEnabled(false)
         if (v) app.enqueueAudioProcessing()
     }
 
