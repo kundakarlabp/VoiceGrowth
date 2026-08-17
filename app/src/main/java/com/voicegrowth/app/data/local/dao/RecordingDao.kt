@@ -22,6 +22,9 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings ORDER BY recordedAt DESC")
     fun getAllRecordingsFlow(): Flow<List<RecordingEntity>>
 
+    @Query("SELECT * FROM recordings WHERE recordedAt >= :startMillis AND recordedAt < :endMillis AND transcriptPath IS NOT NULL ORDER BY recordedAt ASC")
+    suspend fun getRecordingsBetween(startMillis: Long, endMillis: Long): List<RecordingEntity>
+
     // TRANSCRIBING is included so WorkManager/process death cannot strand a row forever.
     @Query("SELECT * FROM recordings WHERE status IN ('PENDING', 'TRANSCRIBING') ORDER BY recordedAt ASC")
     suspend fun getPendingRecordings(): List<RecordingEntity>
