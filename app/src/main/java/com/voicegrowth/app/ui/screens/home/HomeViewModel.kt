@@ -13,8 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -95,10 +95,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun retryRecording(id: Long) = viewModelScope.launch {
         val item = repository.getById(id) ?: return@launch
         if (item.transcriptPath != null) {
-            repository.updateStatus(id, ProcessingStatus.WAITING_FOR_SYNC)
+            repository.updateStatusResetRetry(id, ProcessingStatus.WAITING_FOR_SYNC)
             app.enqueueDriveSync(uiState.value.settings.wifiOnly)
         } else {
-            repository.updateStatus(id, ProcessingStatus.PENDING)
+            repository.updateStatusResetRetry(id, ProcessingStatus.PENDING)
             app.enqueueAudioProcessing()
         }
     }
