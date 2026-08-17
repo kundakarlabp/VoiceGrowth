@@ -1,0 +1,78 @@
+name: Signed Android Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      VOICEGROWTH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      VOICEGROWTH_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      VOICEGROWTH_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.4
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.4'
+
+      - name: Validate signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64" || { echo "ANDROID_KEYSTORE_BASE64 is not configured"; exit 1; }
+          test -n "$VOICEGROWTH_KEYSTORE_PASSWORD" || { echo "ANDROID_KEYSTORE_PASSWORD is not configured"; exit 1; }
+          test -n "$VOICEGROWTH_KEY_ALIAS" || { echo "ANDROID_KEY_ALIAS is not configured"; exit 1; }
+          test -n "$VOICEGROWTH_KEY_PASSWORD" || { echo "ANDROID_KEY_PASSWORD is not configured"; exit 1; }
+
+      - name: Decode release keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYSTORE_PATH="$RUNNER_TEMP/voicegrowth-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          echo "VOICEGROWTH_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: gradle --no-daemon testDebugUnitTest --stacktrace
+
+      - name: Lint
+        run: gradle --no-daemon lintDebug --stacktrace
+
+      - name: Build signed release APK
+        run: gradle --no-daemon assembleRelease --stacktrace
+
+      - name: Verify APK signature and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK"
+          sha256sum "$APK"
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceGrowth-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
