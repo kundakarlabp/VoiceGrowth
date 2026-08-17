@@ -33,15 +33,14 @@ class SettingsDataStore(private val context: Context) {
         val AI_MODEL_PATH = stringPreferencesKey("ai_model_path")
         val AI_MODEL_DISPLAY_NAME = stringPreferencesKey("ai_model_display_name")
         val AI_PREFERRED_BACKEND = stringPreferencesKey("ai_preferred_backend")
+        val DAILY_DIGEST_ENABLED = booleanPreferencesKey("daily_digest_enabled")
         val SELECTED_FOLDER_URI = stringPreferencesKey("selected_folder_uri")
         val SELECTED_FOLDER_NAME = stringPreferencesKey("selected_folder_name")
         val GOOGLE_ACCOUNT_EMAIL = stringPreferencesKey("google_account_email")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
-        .catch { exception ->
-            if (exception is IOException) emit(emptyPreferences()) else throw exception
-        }
+        .catch { exception -> if (exception is IOException) emit(emptyPreferences()) else throw exception }
         .map { preferences ->
             AppSettings(
                 autoProcessing = preferences[PreferencesKeys.AUTO_PROCESSING] ?: true,
@@ -58,6 +57,7 @@ class SettingsDataStore(private val context: Context) {
                 aiModelPath = preferences[PreferencesKeys.AI_MODEL_PATH],
                 aiModelDisplayName = preferences[PreferencesKeys.AI_MODEL_DISPLAY_NAME],
                 aiPreferredBackend = preferences[PreferencesKeys.AI_PREFERRED_BACKEND] ?: "gpu",
+                dailyDigestEnabled = preferences[PreferencesKeys.DAILY_DIGEST_ENABLED] ?: false,
                 selectedFolderUri = preferences[PreferencesKeys.SELECTED_FOLDER_URI],
                 selectedFolderDisplayName = preferences[PreferencesKeys.SELECTED_FOLDER_NAME],
                 googleAccountEmail = preferences[PreferencesKeys.GOOGLE_ACCOUNT_EMAIL]
@@ -76,13 +76,12 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setClinicalPrivacyMode(enabled: Boolean) = update(PreferencesKeys.CLINICAL_PRIVACY_MODE, enabled)
     suspend fun setAiEnabled(enabled: Boolean) = update(PreferencesKeys.AI_ENABLED, enabled)
     suspend fun setAiPreferredBackend(backend: String) = update(PreferencesKeys.AI_PREFERRED_BACKEND, backend)
+    suspend fun setDailyDigestEnabled(enabled: Boolean) = update(PreferencesKeys.DAILY_DIGEST_ENABLED, enabled)
 
     suspend fun setAiModel(path: String?, displayName: String?) {
         context.dataStore.edit { prefs ->
-            if (path.isNullOrBlank()) prefs.remove(PreferencesKeys.AI_MODEL_PATH)
-            else prefs[PreferencesKeys.AI_MODEL_PATH] = path
-            if (displayName.isNullOrBlank()) prefs.remove(PreferencesKeys.AI_MODEL_DISPLAY_NAME)
-            else prefs[PreferencesKeys.AI_MODEL_DISPLAY_NAME] = displayName
+            if (path.isNullOrBlank()) prefs.remove(PreferencesKeys.AI_MODEL_PATH) else prefs[PreferencesKeys.AI_MODEL_PATH] = path
+            if (displayName.isNullOrBlank()) prefs.remove(PreferencesKeys.AI_MODEL_DISPLAY_NAME) else prefs[PreferencesKeys.AI_MODEL_DISPLAY_NAME] = displayName
         }
     }
 
@@ -95,8 +94,7 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setGoogleAccountEmail(email: String?) {
         context.dataStore.edit { prefs ->
-            if (email != null) prefs[PreferencesKeys.GOOGLE_ACCOUNT_EMAIL] = email
-            else prefs.remove(PreferencesKeys.GOOGLE_ACCOUNT_EMAIL)
+            if (email != null) prefs[PreferencesKeys.GOOGLE_ACCOUNT_EMAIL] = email else prefs.remove(PreferencesKeys.GOOGLE_ACCOUNT_EMAIL)
         }
     }
 
