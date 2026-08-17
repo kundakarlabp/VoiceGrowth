@@ -1,6 +1,7 @@
 package com.voicegrowth.app.engine.knowledge
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,5 +24,26 @@ class KnowledgeSearchIndexTest {
         val evidence = KnowledgeSearchIndex.evidenceForAi(listOf(KnowledgeMatch(entry, 10, "evidence")), maxChars = 1_000)
         assertTrue(evidence.contains("RECORDING 42"))
         assertTrue(evidence.length <= 1_000)
+    }
+
+    @Test
+    fun sourceExtractionDoesNotFeedPriorAiSynthesisBackIntoKnowledgeSearch() {
+        val markdown = """
+            ## On-device AI synthesis
+            fabricated-ai-only-token
+
+            ## De-identified ASR transcript
+
+            source evidence says cefiderocol was discussed
+
+            ## Automatic metadata
+            Possible themes:
+            - AMR
+        """.trimIndent()
+
+        val source = KnowledgeSearchIndex.extractSourceTranscript(markdown)
+        assertTrue(source.contains("cefiderocol"))
+        assertFalse(source.contains("fabricated-ai-only-token"))
+        assertFalse(source.contains("Automatic metadata"))
     }
 }
