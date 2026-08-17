@@ -27,18 +27,22 @@ object AiModelManager {
         val temporary = File(directory, "$MODEL_FILE.partial")
         temporary.delete()
 
-        val input = context.contentResolver.openInputStream(uri)
-            ?: error("Unable to open the selected LiteRT-LM model")
-        input.use { source ->
-            temporary.outputStream().buffered(1024 * 1024).use { output ->
-                source.copyTo(output, bufferSize = 1024 * 1024)
+        try {
+            val input = context.contentResolver.openInputStream(uri)
+                ?: error("Unable to open the selected LiteRT-LM model")
+            input.use { source ->
+                temporary.outputStream().buffered(1024 * 1024).use { output ->
+                    source.copyTo(output, bufferSize = 1024 * 1024)
+                }
             }
-        }
-        require(temporary.length() > 0L) { "The selected AI model is empty" }
+            require(temporary.length() > 0L) { "The selected AI model is empty" }
 
-        destination.delete()
-        check(temporary.renameTo(destination)) { "Unable to finalize the imported AI model" }
-        return destination
+            destination.delete()
+            check(temporary.renameTo(destination)) { "Unable to finalize the imported AI model" }
+            return destination
+        } finally {
+            if (temporary.exists()) temporary.delete()
+        }
     }
 
     fun removeModel(context: Context) {
