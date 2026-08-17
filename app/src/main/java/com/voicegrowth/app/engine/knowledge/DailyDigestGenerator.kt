@@ -9,23 +9,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 object DailyDigestGenerator {
-    private val dayFileFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    private val dateTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+    private val dateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
     suspend fun generate(context: Context): Result<File?> {
         return try {
             val app = context.applicationContext as VoiceGrowthApplication
             val repository = app.container.recordingRepository
             val settings = repository.settingsFlow.first()
-            if (!settings.aiEnabled || settings.aiModelPath.isNullOrBlank()) {
-                return Result.failure(IllegalStateException("Enable on-device AI and import a LiteRT-LM model first"))
+            if (!settings.aiEnabled) {
+                return Result.failure(IllegalStateException("Enable on-device AI first"))
             }
+            val modelPath = settings.aiModelPath?.takeIf { it.isNotBlank() }
+                ?: return Result.failure(IllegalStateException("Import a LiteRT-LM model first"))
 
             val (start, end) = todayBounds()
             val recordings = repository.getRecordingsBetween(start, end)
@@ -38,7 +39,8 @@ object DailyDigestGenerator {
                     val markdown = runCatching { file.readText() }.getOrNull() ?: return@mapNotNull null
                     val sourceText = extractSourceTranscript(markdown)
                     if (sourceText.isBlank()) return@mapNotNull null
-                    "RECORDING ${recording.id} | ${dateTimeFormat.format(Date(recording.recordedAt))} | ${recording.source.name}\n$sourceText"
+                    val date = Instant.ofEpochMilli(recording.recordedAt).atZone(ZoneId.systemDefault()).format(dateTimeFormat)
+                    "RECORDING ${recording.id} | $date | ${recording.source.name}\n$sourceText"
                 }.joinToString("\n\n---\n\n")
             }
             if (combined.isBlank()) return Result.success(null)
@@ -47,13 +49,13 @@ object DailyDigestGenerator {
             val ai = OnDeviceAiEngine().synthesizeDailyDigest(
                 context = context,
                 deidentifiedNotes = safeEvidence,
-                modelPath = settings.aiModelPath,
+                modelPath = modelPath,
                 modelDisplayName = settings.aiModelDisplayName,
                 preferredBackend = settings.aiPreferredBackend
             ).getOrThrow()
 
             val directory = File(context.getExternalFilesDir(null), "digests").apply { mkdirs() }
-            val file = File(directory, "digest_${dayFileFormat.format(Date(start))}.md")
+            val file = File(directory, "digest_${LocalDate.now(ZoneId.systemDefault())}.md")
             withContext(Dispatchers.IO) {
                 file.writeText(
                     "${ai.markdown.trim()}\n\n---\n\nGenerated locally by ${ai.engineName} (${ai.backendUsed}).\nAI digest is derived only from forcibly de-identified VoiceGrowth transcript text and must be checked against source transcripts.\n"
@@ -67,10 +69,10 @@ object DailyDigestGenerator {
         }
     }
 
-    fun todayDigestFile(context: Context): File {
-        val (start, _) = todayBounds()
-        return File(File(context.getExternalFilesDir(null), "digests"), "digest_${dayFileFormat.format(Date(start))}.md")
-    }
+    fun todayDigestFile(context: Context): File = File(
+        File(context.getExternalFilesDir(null), "digests"),
+        "digest_${LocalDate.now(ZoneId.systemDefault())}.md"
+    )
 
     private fun extractSourceTranscript(markdown: String): String {
         val heading = "## De-identified ASR transcript"
@@ -83,15 +85,10 @@ object DailyDigestGenerator {
     }
 
     private fun todayBounds(): Pair<Long, Long> {
-        val start = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val end = start.clone() as Calendar
-        end.add(Calendar.DAY_OF_MONTH, 1)
-        return start.timeInMillis to end.timeInMillis
+        val zone = ZoneId.systemDefault()
+        val start = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        return start to end
     }
 
     private const val MAX_SOURCE_CHARS = 100_000
