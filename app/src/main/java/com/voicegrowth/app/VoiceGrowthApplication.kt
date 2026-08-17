@@ -14,6 +14,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.voicegrowth.app.di.AppContainer
+import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.workers.AudioProcessingWorker
 import com.voicegrowth.app.workers.CleanupWorker
 import com.voicegrowth.app.workers.DailyDigestWorker
@@ -23,13 +24,13 @@ import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 class VoiceGrowthApplication : Application() {
-
     lateinit var container: AppContainer
         private set
 
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        RecordingStateStore.setRecording(this, false)
         createNotificationChannels()
         schedulePeriodicWork(this)
     }
@@ -49,12 +50,7 @@ class VoiceGrowthApplication : Application() {
     fun enqueueDriveSync(wifiOnly: Boolean) {
         val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
         val request = OneTimeWorkRequestBuilder<DriveSyncWorker>()
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(networkType)
-                    .setRequiresStorageNotLow(true)
-                    .build()
-            )
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).setRequiresStorageNotLow(true).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(this).enqueueUniqueWork(
@@ -68,18 +64,12 @@ class VoiceGrowthApplication : Application() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_PROCESSING_ID,
-                getString(R.string.channel_processing_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply { description = getString(R.string.channel_processing_desc) }
+            NotificationChannel(CHANNEL_PROCESSING_ID, getString(R.string.channel_processing_name), NotificationManager.IMPORTANCE_LOW)
+                .apply { description = getString(R.string.channel_processing_desc) }
         )
         manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_RECORDING_ID,
-                getString(R.string.channel_recording_name),
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply { description = getString(R.string.channel_recording_desc) }
+            NotificationChannel(CHANNEL_RECORDING_ID, getString(R.string.channel_recording_name), NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = getString(R.string.channel_recording_desc) }
         )
     }
 
@@ -90,35 +80,17 @@ class VoiceGrowthApplication : Application() {
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
             val scanRequest = PeriodicWorkRequestBuilder<FolderScanWorker>(15, TimeUnit.MINUTES)
-                .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build())
-                .build()
-            workManager.enqueueUniquePeriodicWork(
-                FolderScanWorker.WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                scanRequest
-            )
+                .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build()).build()
+            workManager.enqueueUniquePeriodicWork(FolderScanWorker.WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, scanRequest)
 
             val cleanupRequest = PeriodicWorkRequestBuilder<CleanupWorker>(1, TimeUnit.DAYS).build()
-            workManager.enqueueUniquePeriodicWork(
-                CleanupWorker.WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                cleanupRequest
-            )
+            workManager.enqueueUniquePeriodicWork(CleanupWorker.WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, cleanupRequest)
 
             val digestRequest = PeriodicWorkRequestBuilder<DailyDigestWorker>(24, TimeUnit.HOURS)
                 .setInitialDelay(millisUntilNextDigestWindow(), TimeUnit.MILLISECONDS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiresBatteryNotLow(true)
-                        .setRequiresStorageNotLow(true)
-                        .build()
-                )
+                .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())
                 .build()
-            workManager.enqueueUniquePeriodicWork(
-                DailyDigestWorker.WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                digestRequest
-            )
+            workManager.enqueueUniquePeriodicWork(DailyDigestWorker.WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, digestRequest)
         }
 
         private fun millisUntilNextDigestWindow(): Long {
