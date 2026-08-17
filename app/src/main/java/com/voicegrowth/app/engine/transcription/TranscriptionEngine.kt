@@ -1,7 +1,9 @@
 package com.voicegrowth.app.engine.transcription
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.os.Build
 import android.os.Bundle
@@ -12,6 +14,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -28,6 +31,10 @@ data class TranscriptionResult(
     val engineName: String,
     val durationSeconds: Long,
     val detectedThemes: List<String>
+)
+
+class SpeechRecognitionPermissionException : IllegalStateException(
+    "Microphone permission is required for on-device speech recognition"
 )
 
 interface TranscriptionEngine {
@@ -50,6 +57,9 @@ class LocalMedicalSpeechEngine : TranscriptionEngine {
     ): Result<TranscriptionResult> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             return Result.failure(UnsupportedOperationException("Recorded-file on-device transcription requires Android 13 or newer"))
+        }
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return Result.failure(SpeechRecognitionPermissionException())
         }
         if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
             return Result.failure(IllegalStateException("No on-device speech recognition service is installed on this phone"))
@@ -156,6 +166,8 @@ class LocalMedicalSpeechEngine : TranscriptionEngine {
                 override fun onError(error: Int) {
                     if (segments.isNotEmpty()) {
                         finish(Result.success(buildResult(segments.joinToString("\n\n"), language, pcm.durationSeconds)))
+                    } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                        finish(Result.failure(SpeechRecognitionPermissionException()))
                     } else {
                         finish(Result.failure(IllegalStateException("On-device speech recognition failed (${errorLabel(error)})")))
                     }
