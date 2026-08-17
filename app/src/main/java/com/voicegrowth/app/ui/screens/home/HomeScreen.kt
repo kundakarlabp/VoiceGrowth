@@ -23,7 +23,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
@@ -32,17 +34,22 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -109,6 +116,9 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
             viewModel.selectFolder(uri, uri.lastPathSegment ?: "Call recordings")
         }
     }
+    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        viewModel.importAudioUris(uris)
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -125,6 +135,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 actions = {
+                    IconButton(onClick = { audioPicker.launch(arrayOf("audio/*")) }) { Icon(Icons.Default.Add, "Import audio") }
                     IconButton(onClick = viewModel::scanNow, enabled = !state.isScanning) { Icon(Icons.Default.Refresh, "Scan now") }
                     IconButton(onClick = onNavigateToSettings) { Icon(Icons.Default.Settings, "Settings") }
                 }
@@ -157,6 +168,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
             }
 
             StatsDashboard(state.allRecordings)
+            KnowledgeControls(state, viewModel)
             FilterRow(state.selectedFilter, viewModel::setFilter)
 
             if (state.recordings.isEmpty()) {
@@ -164,7 +176,10 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Audiotrack, null, Modifier.size(56.dp), tint = Color.Gray)
                         Spacer(Modifier.height(10.dp))
-                        Text("No recordings in this view", color = Color.Gray)
+                        Text(
+                            if (state.searchQuery.isBlank()) "No recordings in this view" else "No transcript matches",
+                            color = Color.Gray
+                        )
                     }
                 }
             } else {
@@ -175,7 +190,8 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                 ) {
                     items(state.recordings, key = { it.id }) { recording ->
                         RecordingCard(
-                            recording,
+                            recording = recording,
+                            searchExcerpt = state.searchExcerpts[recording.id],
                             onRetry = { viewModel.retryRecording(recording.id) },
                             onDelete = { viewModel.deleteRecording(recording.id) },
                             onPreview = { viewModel.setPreviewRecording(recording) }
@@ -187,7 +203,59 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
     }
 
     state.previewRecording?.let { TranscriptDialog(it) { viewModel.setPreviewRecording(null) } }
+    state.knowledgeAnswer?.let {
+        MarkdownDialog("AI answer from VoiceGrowth library", it, viewModel::clearKnowledgeAnswer)
+    }
+    state.digestContent?.let {
+        MarkdownDialog("Today's VoiceGrowth digest", it, viewModel::clearDigest)
+    }
     if (showRecorder) RecordingBottomSheet { showRecorder = false }
+}
+
+@Composable
+private fun KnowledgeControls(state: HomeUiState, viewModel: HomeViewModel) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = state.searchQuery,
+            onValueChange = viewModel::setSearchQuery,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            label = { Text("Search transcript knowledge") },
+            placeholder = { Text("e.g. cefiderocol CRAB, transplant CMV, action item") }
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = viewModel::askKnowledgeLibrary,
+                enabled = state.searchQuery.isNotBlank() && state.settings.aiEnabled && !state.isKnowledgeAnswering,
+                modifier = Modifier.weight(1f)
+            ) {
+                if (state.isKnowledgeAnswering) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.AutoAwesome, null)
+                }
+                Spacer(Modifier.width(6.dp))
+                Text("Ask AI")
+            }
+            OutlinedButton(
+                onClick = viewModel::openTodayDigest,
+                enabled = state.settings.aiEnabled && !state.isDigestGenerating,
+                modifier = Modifier.weight(1f)
+            ) {
+                if (state.isDigestGenerating) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Today, null)
+                }
+                Spacer(Modifier.width(6.dp))
+                Text("Today's digest")
+            }
+        }
+        if (state.searchQuery.isNotBlank()) {
+            Text("${state.recordings.size} matching recording(s)", style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }
 
 @Composable
@@ -234,7 +302,13 @@ private fun FilterRow(selected: ProcessingStatus?, onSelect: (ProcessingStatus?)
 }
 
 @Composable
-private fun RecordingCard(recording: RecordingEntity, onRetry: () -> Unit, onDelete: () -> Unit, onPreview: () -> Unit) {
+private fun RecordingCard(
+    recording: RecordingEntity,
+    searchExcerpt: String?,
+    onRetry: () -> Unit,
+    onDelete: () -> Unit,
+    onPreview: () -> Unit
+) {
     val date = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.US) }.format(Date(recording.recordedAt))
     val status = statusPresentation(recording.status)
     Card(
@@ -244,25 +318,21 @@ private fun RecordingCard(recording: RecordingEntity, onRetry: () -> Unit, onDel
     ) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    when (recording.source) {
-                        RecordingSource.CALL_RECORDING -> Icons.Default.Phone
-                        RecordingSource.MANUAL_DISCUSSION -> Icons.Default.Group
-                        RecordingSource.VOICE_REFLECTION -> Icons.Default.RecordVoiceOver
-                    },
-                    null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                Icon(sourceIcon(recording.source), null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Text(recording.fileName, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 StatusChip(status.first, status.second)
             }
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("$date • ${TranscriptMarkdownBuilder.formatDuration(recording.durationSeconds)}", style = MaterialTheme.typography.bodySmall)
-                    recording.errorMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2) }
-                }
+            Text("$date • ${TranscriptMarkdownBuilder.formatDuration(recording.durationSeconds)}", style = MaterialTheme.typography.bodySmall)
+            if (!searchExcerpt.isNullOrBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(searchExcerpt, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+            recording.errorMessage?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (recording.status == ProcessingStatus.FAILED || recording.status == ProcessingStatus.WAITING_FOR_SYNC) {
                     IconButton(onClick = onRetry) { Icon(Icons.Default.Refresh, "Retry") }
                 }
@@ -271,6 +341,13 @@ private fun RecordingCard(recording: RecordingEntity, onRetry: () -> Unit, onDel
             }
         }
     }
+}
+
+private fun sourceIcon(source: RecordingSource) = when (source) {
+    RecordingSource.CALL_RECORDING -> Icons.Default.Phone
+    RecordingSource.MANUAL_DISCUSSION -> Icons.Default.Group
+    RecordingSource.VOICE_REFLECTION -> Icons.Default.RecordVoiceOver
+    RecordingSource.IMPORTED_AUDIO -> Icons.Default.Audiotrack
 }
 
 private fun statusPresentation(status: ProcessingStatus): Pair<String, Color> = when (status) {
@@ -296,10 +373,15 @@ private fun TranscriptDialog(recording: RecordingEntity, onDismiss: () -> Unit) 
         recording.transcriptPath?.let { runCatching { File(it).readText() }.getOrElse { "Transcript file unavailable." } }
             ?: "No transcript generated."
     }
+    MarkdownDialog(recording.fileName, content, onDismiss)
+}
+
+@Composable
+private fun MarkdownDialog(title: String, content: String, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(recording.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        text = { LazyColumn(Modifier.heightIn(max = 480.dp)) { item { Text(content, style = MaterialTheme.typography.bodySmall) } } },
+        title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = { LazyColumn(Modifier.heightIn(max = 520.dp)) { item { Text(content, style = MaterialTheme.typography.bodySmall) } } },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }
