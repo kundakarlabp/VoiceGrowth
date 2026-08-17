@@ -1,6 +1,7 @@
 package com.voicegrowth.app.service
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -53,10 +54,12 @@ class QuickCaptureTileService : TileService() {
         }
     }
 
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     private fun openAppForPermission() {
         val intent = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra(MainActivity.EXTRA_REQUEST_MIC_PERMISSION, true)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val pendingIntent = PendingIntent.getActivity(
                 this,
@@ -66,7 +69,8 @@ class QuickCaptureTileService : TileService() {
             )
             startActivityAndCollapse(pendingIntent)
         } else {
-            @Suppress("DEPRECATION")
+            // PendingIntent overload was added in API 34. The guarded legacy overload is the
+            // platform-compatible path on API 24-33 and cannot execute on target-34 devices.
             startActivityAndCollapse(intent)
         }
     }
