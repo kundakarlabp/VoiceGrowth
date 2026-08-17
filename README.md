@@ -1,4 +1,4 @@
-# VoiceGrowth Android Companion — v1.1.0
+# VoiceGrowth Android Companion — v1.1.1
 
 VoiceGrowth is a privacy-first Android companion for a clinician who wants low-friction capture of call recordings, bedside/academic discussions, and voice reflections, followed by local transcription, de-identification, structured Markdown, and optional Google Drive sync.
 
@@ -20,6 +20,17 @@ Network-constrained WorkManager Drive queue
 VoiceGrowth/Transcripts/YYYY/MM-MMM/
 ```
 
+## What changed in v1.1.1
+
+- Missing microphone permission is now treated as a blocked prerequisite instead of consuming transcription retries or failing a valid recording.
+- Granting microphone permission re-enqueues pending transcription automatically.
+- WorkManager and UI scan cancellation is propagated correctly instead of being converted into retry/failure behavior.
+- Transcript filenames now include the database recording ID, preventing same-second filename collisions.
+- Google Drive settings show the currently authorized account/scope rather than relying only on a cached email, with clearer sign-in failure feedback and an explicit Disconnect action.
+- Automatic deletion of original source audio is now an explicit opt-in and defaults to **OFF**.
+- Added a manual GitHub Actions workflow for stable, secret-backed signed release APKs.
+- Added focused tests for collision-safe filenames and privacy-safe destructive-cleanup defaults.
+
 ## What changed in v1.1
 
 - Restored the complete Android source tree; the previous repository upload contained only build stubs.
@@ -38,7 +49,7 @@ VoiceGrowth/Transcripts/YYYY/MM-MMM/
 
 1. **Recorded-file transcription currently requires Android 13 / API 33+** because VoiceGrowth supplies decoded PCM through `RecognizerIntent.EXTRA_AUDIO_SOURCE`.
 2. The phone must expose an **on-device speech recognition service** and have the needed offline language model installed. English (India), Telugu, Hindi, and Auto are exposed in settings.
-3. `RECORD_AUDIO` permission is required by Android's `SpeechRecognizer` API and is also used for manual discussion recording.
+3. `RECORD_AUDIO` permission is required by Android's `SpeechRecognizer` API and is also used for manual discussion recording. If it is denied, discovered recordings remain pending and recover after permission is granted.
 4. Clinical de-identification is pattern based. It reduces obvious identifiers but **cannot guarantee anonymization**; every transcript is marked for manual review.
 5. Original audio is never de-identified. The original-audio cloud upload toggle is therefore off by default.
 6. VoiceGrowth reads OEM call recordings selected by the user through Android's Storage Access Framework. It does not attempt to capture privileged call audio directly.
@@ -53,6 +64,8 @@ com.voicegrowth.app
 
 with the SHA-1 fingerprint of the signing certificate used on the device. Then connect the Google account from **Settings → Google Drive**.
 
+For durable OAuth configuration, use the stable release-signing workflow rather than relying on GitHub's ephemeral debug signing certificate.
+
 ## Build
 
 Requirements:
@@ -61,13 +74,28 @@ Requirements:
 - Android SDK 34
 - Gradle 8.4
 
-Local build with an installed Gradle:
+Local debug validation with an installed Gradle:
 
 ```bash
 gradle testDebugUnitTest lintDebug assembleDebug
 ```
 
 GitHub Actions runs the same validation and publishes `app-debug.apk` as the `VoiceGrowth-debug-apk` workflow artifact.
+
+### Stable signed release APK
+
+The manual **Signed Android Release** workflow validates tests/lint, builds `assembleRelease`, verifies the APK signature, prints its SHA-256 checksum, and uploads `VoiceGrowth-release-apk`.
+
+Configure these repository Actions secrets before running it:
+
+```text
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+```
+
+`ANDROID_KEYSTORE_BASE64` must contain the base64-encoded private Android release keystore. Never commit the keystore or its passwords to this public repository.
 
 ## iQOO / Funtouch setup
 
@@ -82,5 +110,6 @@ GitHub Actions runs the same validation and publishes `app-debug.apk` as the `Vo
 - Clinical privacy mode: **ON**
 - Upload transcript: **ON**
 - Upload original audio: **OFF**
-- Delete local source audio: **7 days after completed processing/sync**
+- Automatic deletion of original source audio: **OFF**
+- Retention period if source-audio deletion is explicitly enabled: **7 days after completed processing/sync**
 - Android app backup: **OFF**
