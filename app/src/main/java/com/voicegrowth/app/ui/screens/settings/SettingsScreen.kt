@@ -25,6 +25,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -34,6 +35,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,6 +51,8 @@ import com.voicegrowth.app.sync.GoogleAuthManager
 fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
     val settings by viewModel.settingsState.collectAsState()
     val context = LocalContext.current
+    var driveMessage by remember { mutableStateOf<String?>(null) }
+    val authorizedAccount = GoogleAuthManager.getSignedInAccount(context)
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) {
@@ -63,7 +69,20 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
     }
     val googleSignIn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         runCatching { GoogleSignIn.getSignedInAccountFromIntent(result.data).result }
-            .onSuccess { viewModel.setGoogleAccount(it.email) }
+            .onSuccess { account ->
+                val authorized = GoogleAuthManager.getSignedInAccount(context)
+                if (authorized != null) {
+                    viewModel.setGoogleAccount(authorized.email ?: account.email)
+                    driveMessage = "Google Drive connected"
+                } else {
+                    viewModel.setGoogleAccount(null)
+                    driveMessage = "Google sign-in completed, but Drive permission was not granted"
+                }
+            }
+            .onFailure { error ->
+                viewModel.setGoogleAccount(null)
+                driveMessage = error.message?.take(160) ?: "Google Drive sign-in failed"
+            }
     }
 
     Scaffold(topBar = {
@@ -114,15 +133,29 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
             Toggle("Upload original audio", "Original audio is NOT de-identified and may contain patient identifiers. Keep this off unless specifically required.", settings.uploadAudio, viewModel::setUploadAudio)
 
             SectionTitle("Storage & retention")
+            Toggle(
+                "Delete original source audio automatically",
+                "OFF by default. Enabling this permanently deletes the original recording after the retention period and after any required cloud uploads are complete.",
+                settings.deleteSourceAudioEnabled,
+                viewModel::setDeleteSourceAudioEnabled
+            )
             OutlinedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Delete source audio after ${settings.deleteLocalAudioDays} day(s)", fontWeight = FontWeight.SemiBold)
-                    Text("Deletion occurs only after local processing is complete; pending cloud sync is retained.", style = MaterialTheme.typography.bodySmall)
+                    Text("Source-audio retention: ${settings.deleteLocalAudioDays} day(s)", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (settings.deleteSourceAudioEnabled) {
+                            "Deletion occurs only after processing is complete and all currently required cloud copies exist."
+                        } else {
+                            "Automatic source-audio deletion is disabled."
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     Slider(
                         value = settings.deleteLocalAudioDays.toFloat(),
                         onValueChange = { viewModel.setDeleteLocalAudioDays(it.toInt()) },
                         valueRange = 1f..30f,
-                        steps = 28
+                        steps = 28,
+                        enabled = settings.deleteSourceAudioEnabled
                     )
                 }
             }
@@ -134,10 +167,36 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Google Drive", fontWeight = FontWeight.SemiBold)
                     Text("Destination: ${settings.driveFolderHierarchy}", style = MaterialTheme.typography.bodySmall)
-                    Text(settings.googleAccountEmail?.let { "Connected: $it" } ?: "Not connected")
+                    Text(authorizedAccount?.email?.let { "Connected: $it" } ?: "Not connected")
+                    if (settings.googleAccountEmail != null && authorizedAccount == null) {
+                        Text(
+                            "The previously saved account is no longer authorized. Reconnect before sync.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    driveMessage?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
                     Spacer(Modifier.height(10.dp))
-                    Button(onClick = { googleSignIn.launch(GoogleAuthManager.getSignInClient(context).signInIntent) }) {
-                        Text(if (settings.googleAccountEmail == null) "Connect Google Drive" else "Switch account")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            driveMessage = null
+                            googleSignIn.launch(GoogleAuthManager.getSignInClient(context).signInIntent)
+                        }) {
+                            Text(if (authorizedAccount == null) "Connect Google Drive" else "Switch account")
+                        }
+                        if (authorizedAccount != null || settings.googleAccountEmail != null) {
+                            OutlinedButton(onClick = {
+                                GoogleAuthManager.getSignInClient(context).signOut()
+                                    .addOnCompleteListener {
+                                        viewModel.setGoogleAccount(null)
+                                        driveMessage = "Google Drive disconnected"
+                                    }
+                            }) {
+                                Text("Disconnect")
+                            }
+                        }
                     }
                 }
             }
