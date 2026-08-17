@@ -34,10 +34,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         store.setAutoProcessing(v)
         if (v) app.enqueueAudioProcessing()
     }
-    fun setWifiOnly(v: Boolean) = viewModelScope.launch {
-        store.setWifiOnly(v)
-        app.enqueueDriveSync(v)
-    }
+    fun setWifiOnly(v: Boolean) = viewModelScope.launch { store.setWifiOnly(v); app.enqueueDriveSync(v) }
     fun setOnlyProcessOver30Sec(v: Boolean) = viewModelScope.launch { store.setOnlyProcessOver30Sec(v) }
     fun setUploadAudio(v: Boolean) = viewModelScope.launch { store.setUploadAudio(v); enqueueSync() }
     fun setUploadTranscript(v: Boolean) = viewModelScope.launch { store.setUploadTranscript(v); enqueueSync() }
@@ -46,6 +43,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setTranscriptionLanguage(v: String) = viewModelScope.launch { store.setTranscriptionLanguage(v) }
     fun setDriveFolderHierarchy(v: String) = viewModelScope.launch { store.setDriveFolderHierarchy(v) }
     fun setClinicalPrivacyMode(v: Boolean) = viewModelScope.launch { store.setClinicalPrivacyMode(v) }
+    fun setDailyDigestEnabled(v: Boolean) = viewModelScope.launch { store.setDailyDigestEnabled(v) }
+
     fun setAiEnabled(v: Boolean) = viewModelScope.launch {
         if (v && settingsState.value.aiModelPath.isNullOrBlank()) {
             _aiMessage.value = "Import a .litertlm model before enabling on-device AI"
@@ -54,9 +53,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         store.setAiEnabled(v)
         if (v) app.enqueueAudioProcessing()
     }
+
     fun setAiPreferredBackend(v: String) = viewModelScope.launch {
         store.setAiPreferredBackend(if (v.equals("cpu", true)) "cpu" else "gpu")
     }
+
     fun setSelectedFolder(uri: String, name: String) = viewModelScope.launch { store.setSelectedFolder(uri, name) }
     fun setGoogleAccount(email: String?) = viewModelScope.launch { store.setGoogleAccountEmail(email); enqueueSync() }
 
@@ -66,9 +67,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _aiMessage.value = "Importing model into VoiceGrowth private storage…"
         try {
             val name = AiModelManager.displayName(app, uri)
-            require(name.endsWith(".litertlm", ignoreCase = true)) {
-                "Select a LiteRT-LM .litertlm model file"
-            }
+            require(name.endsWith(".litertlm", ignoreCase = true)) { "Select a LiteRT-LM .litertlm model file" }
             val file = withContext(Dispatchers.IO) { AiModelManager.importModel(app, uri) }
             store.setAiModel(file.absolutePath, name)
             store.setAiEnabled(true)
@@ -84,6 +83,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun removeAiModel() = viewModelScope.launch {
         store.setAiEnabled(false)
+        store.setDailyDigestEnabled(false)
         withContext(Dispatchers.IO) { AiModelManager.removeModel(app) }
         store.setAiModel(null, null)
         _aiMessage.value = "Imported AI model removed from VoiceGrowth"
