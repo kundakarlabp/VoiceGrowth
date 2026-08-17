@@ -9,6 +9,7 @@ import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.scanner.FolderScanner
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -85,6 +86,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             val count = folderScanner.scanFolder(Uri.parse(selected), current)
             if (count > 0) app.enqueueAudioProcessing()
             message.value = if (count > 0) "$count new recording(s) queued" else "No new completed recordings found"
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             message.value = e.message ?: "Folder scan failed"
         } finally {
