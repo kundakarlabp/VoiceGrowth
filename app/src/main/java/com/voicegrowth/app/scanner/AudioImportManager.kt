@@ -30,15 +30,13 @@ object AudioImportManager {
                 val displayName = queryDisplayName(context, uri)
                 val extension = resolveExtension(context, uri, displayName)
                 val directory = File(context.getExternalFilesDir(null), "imported_audio").apply { mkdirs() }
-                val destination = File(
-                    directory,
-                    "IMP_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}.$extension"
-                )
-
+                val destination = File(directory, "IMP_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}.$extension")
                 try {
                     val input = context.contentResolver.openInputStream(uri)
                         ?: error("Unable to open shared audio: $displayName")
-                    input.use { source -> destination.outputStream().buffered().use(source::copyTo) }
+                    input.use { source ->
+                        destination.outputStream().buffered().use { output -> source.copyTo(output) }
+                    }
                     require(destination.length() > 0L) { "Shared audio is empty: $displayName" }
 
                     val localUri = Uri.fromFile(destination)
@@ -49,14 +47,9 @@ object AudioImportManager {
                         fallbackRecordedAt = System.currentTimeMillis(),
                         fallbackSize = destination.length()
                     )
-                    val status = if (
-                        settings.onlyProcessOver30Sec &&
-                        metadata.durationSeconds in 1 until 30L
-                    ) {
+                    val status = if (settings.onlyProcessOver30Sec && metadata.durationSeconds in 1 until 30L) {
                         ProcessingStatus.SKIPPED_TOO_SHORT
-                    } else {
-                        ProcessingStatus.PENDING
-                    }
+                    } else ProcessingStatus.PENDING
 
                     val id = repository.insertRecording(
                         RecordingEntity(
@@ -73,9 +66,7 @@ object AudioImportManager {
                     if (id > 0L) {
                         imported++
                         if (status == ProcessingStatus.PENDING) pending++
-                    } else {
-                        destination.delete()
-                    }
+                    } else destination.delete()
                 } catch (error: CancellationException) {
                     destination.delete()
                     throw error
@@ -96,21 +87,20 @@ object AudioImportManager {
 
     private fun queryDisplayName(context: Context, uri: Uri): String {
         val name = runCatching {
-            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-                ?.use { cursor ->
-                    val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
-                }
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+            }
         }.getOrNull()
         return name?.takeIf(String::isNotBlank) ?: "Imported audio"
     }
 
     private fun resolveExtension(context: Context, uri: Uri, displayName: String): String {
-        val nameExtension = displayName.substringAfterLast('.', "")
-            .lowercase()
+        val fromName = displayName.substringAfterLast('.', "").lowercase()
             .takeIf { it.matches(Regex("[a-z0-9]{1,8}")) }
-        if (nameExtension != null) return nameExtension
-        val mime = context.contentResolver.getType(uri)
-        return MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)?.lowercase() ?: "m4a"
+        if (fromName != null) return fromName
+        return MimeTypeMap.getSingleton()
+            .getExtensionFromMimeType(context.contentResolver.getType(uri))
+            ?.lowercase() ?: "m4a"
     }
 }
