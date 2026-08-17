@@ -112,6 +112,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                     Button(onClick = { folderPicker.launch(null) }) {
                         Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Choose folder")
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "For one-tap voice capture, add the VoiceGrowth capture tile from Android Quick Settings. Audio files can also be shared to VoiceGrowth from Files, WhatsApp or other apps.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
 
@@ -145,7 +150,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(
-                        "VoiceGrowth sends only the de-identified ASR transcript to the local model. AI notes are stored separately from the source transcript and AI failure never blocks transcript creation.",
+                        "VoiceGrowth sends only forcibly de-identified text to the library-query and daily-digest AI paths. AI failure never blocks transcript creation.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Toggle(
@@ -153,6 +158,12 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                         "Generate a title, summary, stated decisions/actions, questions, learning points and follow-up.",
                         settings.aiEnabled,
                         viewModel::setAiEnabled
+                    )
+                    Toggle(
+                        "Daily AI digest around 9 PM",
+                        "Opt-in. Summarize today's processed VoiceGrowth transcripts locally when battery/storage are healthy.",
+                        settings.dailyDigestEnabled,
+                        viewModel::setDailyDigestEnabled
                     )
                     Text("Preferred AI backend", fontWeight = FontWeight.SemiBold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -179,9 +190,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                             Text(if (aiImporting) "Importing…" else if (settings.aiModelPath == null) "Import .litertlm model" else "Replace model")
                         }
                         if (settings.aiModelPath != null) {
-                            OutlinedButton(enabled = !aiImporting, onClick = viewModel::removeAiModel) {
-                                Text("Remove")
-                            }
+                            OutlinedButton(enabled = !aiImporting, onClick = viewModel::removeAiModel) { Text("Remove") }
                         }
                     }
                     Text(
@@ -208,11 +217,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Source-audio retention: ${settings.deleteLocalAudioDays} day(s)", fontWeight = FontWeight.SemiBold)
                     Text(
-                        if (settings.deleteSourceAudioEnabled) {
-                            "Deletion occurs only after processing is complete and all currently required cloud copies exist."
-                        } else {
-                            "Automatic source-audio deletion is disabled."
-                        },
+                        if (settings.deleteSourceAudioEnabled) "Deletion occurs only after processing is complete and all currently required cloud copies exist."
+                        else "Automatic source-audio deletion is disabled.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Slider(
@@ -225,10 +231,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 }
             }
 
-            OutlinedCard(
-                Modifier.fillMaxWidth(),
-                colors = CardDefaults.outlinedCardColors()
-            ) {
+            OutlinedCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Google Drive", fontWeight = FontWeight.SemiBold)
                     Text("Destination: ${settings.driveFolderHierarchy}", style = MaterialTheme.typography.bodySmall)
@@ -251,14 +254,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                         }
                         if (authorizedAccount != null || settings.googleAccountEmail != null) {
                             OutlinedButton(onClick = {
-                                GoogleAuthManager.getSignInClient(context).signOut()
-                                    .addOnCompleteListener {
-                                        viewModel.setGoogleAccount(null)
-                                        driveMessage = "Google Drive disconnected"
-                                    }
-                            }) {
-                                Text("Disconnect")
-                            }
+                                GoogleAuthManager.getSignInClient(context).signOut().addOnCompleteListener {
+                                    viewModel.setGoogleAccount(null)
+                                    driveMessage = "Google Drive disconnected"
+                                }
+                            }) { Text("Disconnect") }
                         }
                     }
                 }
