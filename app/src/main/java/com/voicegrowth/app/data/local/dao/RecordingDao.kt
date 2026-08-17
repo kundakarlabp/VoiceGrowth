@@ -22,7 +22,8 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings ORDER BY recordedAt DESC")
     fun getAllRecordingsFlow(): Flow<List<RecordingEntity>>
 
-    @Query("SELECT * FROM recordings WHERE status = 'PENDING' ORDER BY recordedAt ASC")
+    // TRANSCRIBING is included so WorkManager/process death cannot strand a row forever.
+    @Query("SELECT * FROM recordings WHERE status IN ('PENDING', 'TRANSCRIBING') ORDER BY recordedAt ASC")
     suspend fun getPendingRecordings(): List<RecordingEntity>
 
     @Query("SELECT * FROM recordings WHERE status IN ('LOCAL_READY', 'WAITING_FOR_SYNC', 'UPLOADED') ORDER BY recordedAt ASC")
@@ -34,7 +35,10 @@ interface RecordingDao {
     @Query("UPDATE recordings SET status = :status, errorMessage = :error WHERE id = :id")
     suspend fun updateStatus(id: Long, status: ProcessingStatus, error: String? = null)
 
-    @Query("UPDATE recordings SET transcriptPath = :transcriptPath, detectedThemes = :themes, durationSeconds = :durationSeconds, status = :status, processedAt = :processedAt, errorMessage = NULL WHERE id = :id")
+    @Query("UPDATE recordings SET status = :status, errorMessage = :error, retryCount = 0 WHERE id = :id")
+    suspend fun updateStatusResetRetry(id: Long, status: ProcessingStatus, error: String? = null)
+
+    @Query("UPDATE recordings SET transcriptPath = :transcriptPath, detectedThemes = :themes, durationSeconds = :durationSeconds, status = :status, processedAt = :processedAt, errorMessage = NULL, retryCount = 0 WHERE id = :id")
     suspend fun updateTranscript(
         id: Long,
         transcriptPath: String,
