@@ -95,10 +95,15 @@ class AudioProcessingWorker(
                 return false
             }
 
-            val privacy = ClinicalDeidentifier.process(
+            // The transcript follows the user's privacy setting. The AI path is stricter: it always
+            // receives a de-identified copy even if the user has disabled transcript redaction.
+            val transcriptPrivacy = ClinicalDeidentifier.process(
                 transcription.transcriptText,
                 settings.clinicalPrivacyMode
             )
+            val aiPrivacy = if (settings.aiEnabled) {
+                ClinicalDeidentifier.process(transcription.transcriptText, enabled = true)
+            } else transcriptPrivacy
 
             var aiWarning: String? = null
             val aiSynthesis = if (settings.aiEnabled) {
@@ -111,7 +116,7 @@ class AudioProcessingWorker(
                     try {
                         aiEngine.synthesize(
                             context = applicationContext,
-                            deidentifiedTranscript = privacy.scrubbedText,
+                            deidentifiedTranscript = aiPrivacy.scrubbedText,
                             source = recording.source,
                             modelPath = modelPath,
                             modelDisplayName = settings.aiModelDisplayName,
@@ -134,8 +139,8 @@ class AudioProcessingWorker(
                 source = recording.source,
                 language = transcription.detectedLanguage,
                 engineName = transcription.engineName,
-                rawTranscript = privacy.scrubbedText,
-                deidResult = privacy,
+                rawTranscript = transcriptPrivacy.scrubbedText,
+                deidResult = transcriptPrivacy,
                 detectedThemes = transcription.detectedThemes,
                 aiSynthesis = aiSynthesis,
                 aiWarning = aiWarning
