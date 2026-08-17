@@ -4,37 +4,18 @@ import com.voicegrowth.app.data.local.entity.RecordingEntity
 import java.io.File
 import java.util.Locale
 
-data class KnowledgeEntry(
-    val recordingId: Long,
-    val fileName: String,
-    val themes: String,
-    val recordedAt: Long,
-    val source: String,
-    val content: String
-)
-
-data class KnowledgeMatch(
-    val entry: KnowledgeEntry,
-    val score: Int,
-    val excerpt: String
-)
+data class KnowledgeEntry(val recordingId: Long, val fileName: String, val themes: String, val recordedAt: Long, val source: String, val content: String)
+data class KnowledgeMatch(val entry: KnowledgeEntry, val score: Int, val excerpt: String)
 
 object KnowledgeSearchIndex {
     private val tokenRegex = Regex("[\\p{L}\\p{N}]+")
 
-    fun build(recordings: List<RecordingEntity>): List<KnowledgeEntry> = recordings.mapNotNull { recording ->
-        val file = recording.transcriptPath?.let(::File) ?: return@mapNotNull null
+    fun build(recordings: List<RecordingEntity>): List<KnowledgeEntry> = recordings.mapNotNull { r ->
+        val file = r.transcriptPath?.let(::File) ?: return@mapNotNull null
         if (!file.exists() || file.length() <= 0L) return@mapNotNull null
-        val content = runCatching { file.readText().take(MAX_INDEX_CHARS) }.getOrNull()
-            ?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-        KnowledgeEntry(
-            recordingId = recording.id,
-            fileName = recording.fileName,
-            themes = recording.detectedThemes,
-            recordedAt = recording.recordedAt,
-            source = recording.source.name,
-            content = content
-        )
+        val content = runCatching { file.readText().take(MAX_INDEX_CHARS) }.getOrNull()?.takeIf(String::isNotBlank)
+            ?: return@mapNotNull null
+        KnowledgeEntry(r.id, r.fileName, r.detectedThemes, r.recordedAt, r.source.name, content)
     }
 
     fun search(entries: List<KnowledgeEntry>, query: String, limit: Int = 50): List<KnowledgeMatch> {
@@ -62,13 +43,12 @@ object KnowledgeSearchIndex {
 
     fun evidenceForAi(matches: List<KnowledgeMatch>, maxChars: Int = 12_000): String {
         val out = StringBuilder()
-        matches.forEach { match ->
-            if (out.length >= maxChars) return@forEach
-            val entry = match.entry
-            val header = "RECORDING ${entry.recordingId} | ${entry.source} | ${entry.fileName}"
-            val body = entry.content.take(2_500)
+        for (match in matches) {
+            if (out.length >= maxChars) break
             if (out.isNotEmpty()) out.append("\n\n---\n\n")
-            out.append(header).append('\n').append(body)
+            out.append("RECORDING ${match.entry.recordingId} | ${match.entry.source} | ${match.entry.fileName}\n")
+            out.append("Themes: ${match.entry.themes}\n")
+            out.append(match.excerpt)
         }
         return out.toString().take(maxChars)
     }
@@ -77,9 +57,8 @@ object KnowledgeSearchIndex {
         val lower = content.lowercase(Locale.ROOT)
         var index = lower.indexOf(phrase)
         if (index < 0) index = terms.map { lower.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: 0
-        val start = (index - 120).coerceAtLeast(0)
-        val end = (index + 320).coerceAtMost(content.length)
-        return content.substring(start, end).replace(Regex("\\s+"), " ").trim()
+        return content.substring((index - 500).coerceAtLeast(0), (index + 1_200).coerceAtMost(content.length))
+            .replace(Regex("\\s+"), " ").trim()
     }
 
     private fun occurrenceCount(text: String, term: String): Int {
