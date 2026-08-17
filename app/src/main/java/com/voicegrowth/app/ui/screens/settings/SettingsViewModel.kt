@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.voicegrowth.app.VoiceGrowthApplication
 import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.engine.ai.AiModelManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -65,10 +66,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _aiMessage.value = "Importing model into VoiceGrowth private storage…"
         try {
             val name = AiModelManager.displayName(app, uri)
+            require(name.endsWith(".litertlm", ignoreCase = true)) {
+                "Select a LiteRT-LM .litertlm model file"
+            }
             val file = withContext(Dispatchers.IO) { AiModelManager.importModel(app, uri) }
             store.setAiModel(file.absolutePath, name)
             store.setAiEnabled(true)
             _aiMessage.value = "On-device AI model ready: $name"
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             _aiMessage.value = "Model import failed: ${(error.message ?: error::class.java.simpleName).take(180)}"
         } finally {
