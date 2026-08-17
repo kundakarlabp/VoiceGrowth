@@ -15,6 +15,7 @@ import com.voicegrowth.app.VoiceGrowthApplication
 import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.preferences.AppSettings
+import com.voicegrowth.app.engine.ai.OnDeviceAiEngine
 import com.voicegrowth.app.engine.format.TranscriptMarkdownBuilder
 import com.voicegrowth.app.engine.privacy.ClinicalDeidentifier
 import com.voicegrowth.app.engine.transcription.LocalMedicalSpeechEngine
@@ -24,7 +25,7 @@ import kotlinx.coroutines.flow.first
 import java.io.File
 
 /**
- * Local-only pipeline: audio -> on-device ASR -> de-identification -> Markdown.
+ * Local pipeline: audio -> on-device ASR -> de-identification -> optional LiteRT-LM synthesis -> Markdown.
  * Network work is deliberately delegated to DriveSyncWorker.
  */
 class AudioProcessingWorker(
@@ -33,6 +34,7 @@ class AudioProcessingWorker(
 ) : CoroutineWorker(appContext, params) {
 
     private val transcriptionEngine = LocalMedicalSpeechEngine()
+    private val aiEngine = OnDeviceAiEngine()
 
     override suspend fun doWork(): Result {
         val app = applicationContext as VoiceGrowthApplication
@@ -55,7 +57,7 @@ class AudioProcessingWorker(
 
         pending.forEachIndexed { index, recording ->
             setForeground(createForegroundInfo("Transcribing ${index + 1}/${pending.size}: ${recording.fileName}"))
-            val retry = processOne(recording, settings, app)
+            val retry = processOne(recording, settings, app, index + 1, pending.size)
             retryNeeded = retryNeeded || retry
         }
         return if (retryNeeded) Result.retry() else Result.success()
@@ -64,7 +66,9 @@ class AudioProcessingWorker(
     private suspend fun processOne(
         recording: RecordingEntity,
         settings: AppSettings,
-        app: VoiceGrowthApplication
+        app: VoiceGrowthApplication,
+        queueIndex: Int,
+        queueSize: Int
     ): Boolean {
         val repository = app.container.recordingRepository
         var tempAudio: File? = null
@@ -91,10 +95,41 @@ class AudioProcessingWorker(
                 return false
             }
 
-            val privacy = ClinicalDeidentifier.process(
+            // The transcript follows the user's privacy setting. The AI path is stricter: it always
+            // receives a de-identified copy even if the user has disabled transcript redaction.
+            val transcriptPrivacy = ClinicalDeidentifier.process(
                 transcription.transcriptText,
                 settings.clinicalPrivacyMode
             )
+            val aiPrivacy = if (settings.aiEnabled) {
+                ClinicalDeidentifier.process(transcription.transcriptText, enabled = true)
+            } else transcriptPrivacy
+
+            var aiWarning: String? = null
+            val aiSynthesis = if (settings.aiEnabled) {
+                val modelPath = settings.aiModelPath
+                if (modelPath.isNullOrBlank()) {
+                    aiWarning = "On-device AI is enabled but no LiteRT-LM model has been imported"
+                    null
+                } else {
+                    setForeground(createForegroundInfo("AI structuring $queueIndex/$queueSize: ${recording.fileName}"))
+                    try {
+                        aiEngine.synthesize(
+                            context = applicationContext,
+                            deidentifiedTranscript = aiPrivacy.scrubbedText,
+                            source = recording.source,
+                            modelPath = modelPath,
+                            modelDisplayName = settings.aiModelDisplayName,
+                            preferredBackend = settings.aiPreferredBackend
+                        ).getOrThrow()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        aiWarning = (error.message ?: error::class.java.simpleName).take(300)
+                        null
+                    }
+                }
+            } else null
 
             val transcriptDuration = transcription.durationSeconds.takeIf { it > 0 }
                 ?: recording.durationSeconds
@@ -104,9 +139,11 @@ class AudioProcessingWorker(
                 source = recording.source,
                 language = transcription.detectedLanguage,
                 engineName = transcription.engineName,
-                rawTranscript = privacy.scrubbedText,
-                deidResult = privacy,
-                detectedThemes = transcription.detectedThemes
+                rawTranscript = transcriptPrivacy.scrubbedText,
+                deidResult = transcriptPrivacy,
+                detectedThemes = transcription.detectedThemes,
+                aiSynthesis = aiSynthesis,
+                aiWarning = aiWarning
             )
 
             val transcriptDir = File(applicationContext.getExternalFilesDir(null), "transcripts")

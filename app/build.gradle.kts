@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.ksp)
 }
 
@@ -23,8 +24,8 @@ android {
         applicationId = "com.voicegrowth.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -59,7 +60,6 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-    composeOptions { kotlinCompilerExtensionVersion = "1.5.11" }
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1,DEPENDENCIES,INDEX.LIST}"
@@ -96,6 +96,8 @@ dependencies {
     implementation(libs.google.http.client.android)
     implementation(libs.google.http.client.gson)
     implementation(libs.google.api.services.drive)
+
+    implementation(libs.litertlm)
 
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)

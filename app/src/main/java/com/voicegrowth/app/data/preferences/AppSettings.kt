@@ -11,6 +11,10 @@ data class AppSettings(
     val transcriptionLanguage: String = "auto",
     val driveFolderHierarchy: String = "VoiceGrowth/Transcripts",
     val clinicalPrivacyMode: Boolean = true,
+    val aiEnabled: Boolean = false,
+    val aiModelPath: String? = null,
+    val aiModelDisplayName: String? = null,
+    val aiPreferredBackend: String = "gpu",
     val selectedFolderUri: String? = null,
     val selectedFolderDisplayName: String? = null,
     val googleAccountEmail: String? = null

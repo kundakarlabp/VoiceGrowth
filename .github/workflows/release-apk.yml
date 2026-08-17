@@ -9,7 +9,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       VOICEGROWTH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -26,10 +26,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.4
+      - name: Set up Gradle 9.2.1
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '8.4'
+          gradle-version: '9.2.1'
 
       - name: Validate signing secrets
         shell: bash

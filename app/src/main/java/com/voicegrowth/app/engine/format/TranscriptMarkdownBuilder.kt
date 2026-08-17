@@ -1,6 +1,7 @@
 package com.voicegrowth.app.engine.format
 
 import com.voicegrowth.app.data.model.RecordingSource
+import com.voicegrowth.app.engine.ai.AiSynthesisResult
 import com.voicegrowth.app.engine.privacy.DeidentificationResult
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -24,7 +25,9 @@ object TranscriptMarkdownBuilder {
         engineName: String,
         rawTranscript: String,
         deidResult: DeidentificationResult,
-        detectedThemes: List<String>
+        detectedThemes: List<String>,
+        aiSynthesis: AiSynthesisResult? = null,
+        aiWarning: String? = null
     ): String {
         val dateStr = DATE_FORMAT.format(Date(recordedAtMillis))
         val sourceLabel = when (source) {
@@ -39,6 +42,29 @@ object TranscriptMarkdownBuilder {
         } else {
             "No pattern-based identifiers detected"
         }
+        val aiSection = when {
+            aiSynthesis != null -> """
+
+## On-device AI synthesis
+
+> AI-GENERATED NOTE — verify all details against the source transcript below. The model was instructed not to add facts or medical recommendations.
+
+- Engine: ${aiSynthesis.engineName}
+- Backend: ${aiSynthesis.backendUsed}
+- Transcript segments processed: ${aiSynthesis.chunkCount}
+
+${aiSynthesis.markdown}
+"""
+            !aiWarning.isNullOrBlank() -> """
+
+## On-device AI synthesis
+
+Not generated: $aiWarning
+
+The source transcript remains available below and can be reprocessed after the AI model is configured or the runtime issue is corrected.
+"""
+            else -> ""
+        }
 
         return """
 # Conversation $dateStr
@@ -48,8 +74,9 @@ object TranscriptMarkdownBuilder {
 - Language: $language
 - Transcript engine: $engineName
 - Review status: MANUAL REVIEW RECOMMENDED
+$aiSection
 
-## Transcript
+## De-identified ASR transcript
 
 $rawTranscript
 
@@ -61,6 +88,7 @@ $themes
 Privacy screen:
 - $redactions
 - Automated de-identification is heuristic and does not guarantee that all identifiers were removed.
+- AI synthesis, when enabled, is generated only from the de-identified transcript and must be checked against the source transcript.
 """.trimIndent()
     }
 

@@ -6,11 +6,13 @@ import org.junit.Test
 
 class AppSettingsTest {
     @Test
-    fun destructiveSourceAudioDeletionIsOffByDefault() {
+    fun privacySensitiveFeaturesUseSafeDefaults() {
         val settings = AppSettings()
 
         assertFalse(settings.deleteSourceAudioEnabled)
         assertTrue(settings.clinicalPrivacyMode)
         assertFalse(settings.uploadAudio)
+        assertFalse(settings.aiEnabled)
+        assertTrue(settings.aiModelPath == null)
     }
 }

@@ -50,6 +50,8 @@ import com.voicegrowth.app.sync.GoogleAuthManager
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
     val settings by viewModel.settingsState.collectAsState()
+    val aiImporting by viewModel.aiImporting.collectAsState()
+    val aiMessage by viewModel.aiMessage.collectAsState()
     val context = LocalContext.current
     var driveMessage by remember { mutableStateOf<String?>(null) }
     val authorizedAccount = GoogleAuthManager.getSignedInAccount(context)
@@ -67,6 +69,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
             viewModel.setSelectedFolder(uri.toString(), uri.lastPathSegment ?: "Call recordings")
         }
     }
+
+    val aiModelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) viewModel.importAiModel(uri)
+    }
+
     val googleSignIn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         runCatching { GoogleSignIn.getSignedInAccountFromIntent(result.data).result }
             .onSuccess { account ->
@@ -124,13 +131,70 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 }
             }
             Text(
-                "Recorded-file transcription uses the phone's on-device speech recognizer. Install the required offline language model in Android speech settings if a language is unavailable.",
+                "Speech-to-text uses Android's on-device speech recognizer. LiteRT-LM is used after ASR for optional private AI structuring, not as the primary long-audio transcriber.",
                 style = MaterialTheme.typography.bodySmall
             )
 
+            SectionTitle("On-device AI")
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Gemma / LiteRT-LM", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        settings.aiModelDisplayName?.let { "Imported model: $it" }
+                            ?: "No model imported into VoiceGrowth",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        "VoiceGrowth sends only the de-identified ASR transcript to the local model. AI notes are stored separately from the source transcript and AI failure never blocks transcript creation.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Toggle(
+                        "Enable on-device AI synthesis",
+                        "Generate a title, summary, stated decisions/actions, questions, learning points and follow-up.",
+                        settings.aiEnabled,
+                        viewModel::setAiEnabled
+                    )
+                    Text("Preferred AI backend", fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = settings.aiPreferredBackend == "gpu",
+                            onClick = { viewModel.setAiPreferredBackend("gpu") },
+                            label = { Text("GPU first") }
+                        )
+                        FilterChip(
+                            selected = settings.aiPreferredBackend == "cpu",
+                            onClick = { viewModel.setAiPreferredBackend("cpu") },
+                            label = { Text("CPU only") }
+                        )
+                    }
+                    Text(
+                        "GPU first automatically falls back to CPU if LiteRT-LM cannot initialize the GPU backend.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            enabled = !aiImporting,
+                            onClick = { aiModelPicker.launch(arrayOf("*/*")) }
+                        ) {
+                            Text(if (aiImporting) "Importing…" else if (settings.aiModelPath == null) "Import .litertlm model" else "Replace model")
+                        }
+                        if (settings.aiModelPath != null) {
+                            OutlinedButton(enabled = !aiImporting, onClick = viewModel::removeAiModel) {
+                                Text("Remove")
+                            }
+                        }
+                    }
+                    Text(
+                        "Android app isolation prevents VoiceGrowth from directly reading AI Edge Gallery's private model file. Select an accessible .litertlm file; VoiceGrowth copies it once into its own private storage.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    aiMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+
             SectionTitle("Privacy & cloud")
-            Toggle("Clinical privacy mode", "Pattern-based redaction before transcript upload; manual review is still recommended.", settings.clinicalPrivacyMode, viewModel::setClinicalPrivacyMode)
-            Toggle("Upload transcript (.md)", "Sync the locally processed Markdown transcript to Drive.", settings.uploadTranscript, viewModel::setUploadTranscript)
+            Toggle("Clinical privacy mode", "Pattern-based redaction before AI processing and transcript upload; manual review is still recommended.", settings.clinicalPrivacyMode, viewModel::setClinicalPrivacyMode)
+            Toggle("Upload transcript (.md)", "Sync the locally processed Markdown transcript and optional AI synthesis to Drive.", settings.uploadTranscript, viewModel::setUploadTranscript)
             Toggle("Upload original audio", "Original audio is NOT de-identified and may contain patient identifiers. Keep this off unless specifically required.", settings.uploadAudio, viewModel::setUploadAudio)
 
             SectionTitle("Storage & retention")
@@ -176,9 +240,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.error
                         )
                     }
-                    driveMessage?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall)
-                    }
+                    driveMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
@@ -207,7 +269,12 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
 }
 
 @Composable
-private fun SectionTitle(text: String) = Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+private fun SectionTitle(text: String) = Text(
+    text,
+    style = MaterialTheme.typography.titleMedium,
+    fontWeight = FontWeight.Bold,
+    color = MaterialTheme.colorScheme.primary
+)
 
 @Composable
 private fun Toggle(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {

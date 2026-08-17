@@ -1,6 +1,7 @@
 package com.voicegrowth.app.engine.format
 
 import com.voicegrowth.app.data.model.RecordingSource
+import com.voicegrowth.app.engine.ai.AiSynthesisResult
 import com.voicegrowth.app.engine.privacy.DeidentificationResult
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -23,6 +24,32 @@ class TranscriptMarkdownBuilderTest {
         assertTrue(md.contains("test-engine"))
         assertTrue(md.contains("Antimicrobial stewardship"))
         assertTrue(md.contains("does not guarantee"))
+        assertTrue(md.contains("De-identified ASR transcript"))
+    }
+
+    @Test
+    fun aiSynthesisIsClearlySeparatedFromSourceTranscript() {
+        val md = TranscriptMarkdownBuilder.buildMarkdown(
+            recordedAtMillis = 1_700_000_000_000,
+            durationSeconds = 90,
+            source = RecordingSource.CALL_RECORDING,
+            language = "en-IN",
+            engineName = "asr",
+            rawTranscript = "source words remain here",
+            deidResult = DeidentificationResult("source words remain here", 0, emptyList(), true),
+            detectedThemes = emptyList(),
+            aiSynthesis = AiSynthesisResult(
+                markdown = "# Evidence title\n\n## Summary\nStated summary.",
+                engineName = "LiteRT-LM test",
+                backendUsed = "GPU",
+                chunkCount = 2
+            )
+        )
+
+        assertTrue(md.contains("AI-GENERATED NOTE"))
+        assertTrue(md.contains("LiteRT-LM test"))
+        assertTrue(md.contains("source words remain here"))
+        assertTrue(md.indexOf("On-device AI synthesis") < md.indexOf("De-identified ASR transcript"))
     }
 
     @Test
