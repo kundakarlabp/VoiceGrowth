@@ -8,11 +8,11 @@ class AppSettingsTest {
     @Test
     fun privacySensitiveFeaturesUseSafeDefaults() {
         val settings = AppSettings()
-
         assertFalse(settings.deleteSourceAudioEnabled)
         assertTrue(settings.clinicalPrivacyMode)
         assertFalse(settings.uploadAudio)
         assertFalse(settings.aiEnabled)
+        assertFalse(settings.dailyDigestEnabled)
         assertTrue(settings.aiModelPath == null)
     }
 }
