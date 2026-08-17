@@ -5,16 +5,21 @@ import android.content.Intent
 import android.media.AudioFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.annotation.RequiresApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileInputStream
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
 data class TranscriptionResult(
@@ -53,7 +58,14 @@ class LocalMedicalSpeechEngine : TranscriptionEngine {
         val pcmFile = File(context.cacheDir, "asr_${audioFile.nameWithoutExtension}_${System.nanoTime()}.pcm")
         return try {
             val pcm = AudioPcmDecoder.decodeToMonoPcm16(audioFile, pcmFile)
-            recognizePcm(context, pcm, language)
+            val timeoutMs = transcriptionTimeoutMs(pcm.durationSeconds)
+            withTimeoutOrNull(timeoutMs) {
+                recognizePcm(context, pcm, language)
+            } ?: Result.failure(
+                IllegalStateException("On-device speech recognition timed out after ${timeoutMs / 1_000L} seconds")
+            )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         } finally {
@@ -85,18 +97,21 @@ class LocalMedicalSpeechEngine : TranscriptionEngine {
             val readFd = pipe[0]
             val writeFd = pipe[1]
             val segments = mutableListOf<String>()
-            var finished = false
+            val finished = AtomicBoolean(false)
 
-            fun cleanup() {
+            fun closePipe() {
                 runCatching { readFd.close() }
                 runCatching { writeFd.close() }
+            }
+
+            fun cleanupOnMain() {
+                closePipe()
                 runCatching { recognizer.destroy() }
             }
 
             fun finish(result: Result<TranscriptionResult>) {
-                if (finished) return
-                finished = true
-                cleanup()
+                if (!finished.compareAndSet(false, true)) return
+                cleanupOnMain()
                 if (continuation.isActive) continuation.resume(result)
             }
 
@@ -164,17 +179,28 @@ class LocalMedicalSpeechEngine : TranscriptionEngine {
                 languageTag(language)?.let { putExtra(RecognizerIntent.EXTRA_LANGUAGE, it) }
             }
 
-            continuation.invokeOnCancellation { cleanup() }
+            continuation.invokeOnCancellation {
+                if (finished.compareAndSet(false, true)) {
+                    closePipe()
+                    Handler(Looper.getMainLooper()).post {
+                        runCatching { recognizer.destroy() }
+                    }
+                }
+            }
 
             try {
                 recognizer.startListening(intent)
                 Thread({
-                    runCatching {
+                    try {
                         FileInputStream(pcm.file).use { input ->
                             ParcelFileDescriptor.AutoCloseOutputStream(writeFd).use { output ->
                                 input.copyTo(output, 64 * 1024)
                             }
                         }
+                    } catch (_: Exception) {
+                        // The recognizer callback or timeout will surface the session failure.
+                    } finally {
+                        runCatching { writeFd.close() }
                     }
                 }, "VoiceGrowth-ASR-Feeder").apply {
                     isDaemon = true
@@ -184,6 +210,11 @@ class LocalMedicalSpeechEngine : TranscriptionEngine {
                 finish(Result.failure(e))
             }
         }
+    }
+
+    private fun transcriptionTimeoutMs(durationSeconds: Long): Long {
+        val scaled = durationSeconds.coerceAtLeast(0L) * 2_000L + 60_000L
+        return scaled.coerceIn(MIN_TRANSCRIPTION_TIMEOUT_MS, MAX_TRANSCRIPTION_TIMEOUT_MS)
     }
 
     private fun buildResult(text: String, language: String, duration: Long): TranscriptionResult =
@@ -224,6 +255,9 @@ class LocalMedicalSpeechEngine : TranscriptionEngine {
     }
 
     companion object {
+        private const val MIN_TRANSCRIPTION_TIMEOUT_MS = 3 * 60 * 1_000L
+        private const val MAX_TRANSCRIPTION_TIMEOUT_MS = 2 * 60 * 60 * 1_000L
+
         private val THEME_TERMS = linkedMapOf(
             "Antimicrobial resistance" to listOf("resistant", "resistance", "mdr", "xdr", "crab", "cre", "dtr"),
             "Antimicrobial stewardship" to listOf("de-escal", "antibiotic", "antimicrobial", "duration", "extended infusion"),
