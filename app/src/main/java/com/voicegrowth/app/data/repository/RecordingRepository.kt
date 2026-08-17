@@ -24,6 +24,9 @@ class RecordingRepository(
     suspend fun updateStatus(id: Long, status: ProcessingStatus, error: String? = null) =
         dao.updateStatus(id, status, error)
 
+    suspend fun updateStatusResetRetry(id: Long, status: ProcessingStatus, error: String? = null) =
+        dao.updateStatusResetRetry(id, status, error)
+
     suspend fun updateTranscript(
         id: Long,
         transcriptPath: String,
