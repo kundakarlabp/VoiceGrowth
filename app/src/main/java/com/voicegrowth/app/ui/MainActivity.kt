@@ -2,6 +2,7 @@ package com.voicegrowth.app.ui
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,6 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import com.voicegrowth.app.VoiceGrowthApplication
 import com.voicegrowth.app.service.RecordingMonitorService
 import com.voicegrowth.app.ui.screens.home.HomeScreen
 import com.voicegrowth.app.ui.screens.home.HomeViewModel
@@ -25,6 +28,9 @@ class MainActivity : ComponentActivity() {
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         startMonitorService()
+        if (hasRecordAudioPermission()) {
+            (application as VoiceGrowthApplication).enqueueAudioProcessing()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,6 +52,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun hasRecordAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun startMonitorService() {
         val intent = Intent(this, RecordingMonitorService::class.java)
