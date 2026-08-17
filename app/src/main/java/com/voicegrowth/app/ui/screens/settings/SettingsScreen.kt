@@ -80,8 +80,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 }
             }
             .onFailure { error ->
-                viewModel.setGoogleAccount(null)
-                driveMessage = error.message?.take(160) ?: "Google Drive sign-in failed"
+                val stillAuthorized = GoogleAuthManager.getSignedInAccount(context)
+                viewModel.setGoogleAccount(stillAuthorized?.email)
+                driveMessage = error.message?.take(160) ?: "Google Drive sign-in was cancelled or failed"
             }
     }
 
