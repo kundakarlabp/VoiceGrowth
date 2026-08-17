@@ -9,13 +9,17 @@ data class KnowledgeMatch(val entry: KnowledgeEntry, val score: Int, val excerpt
 
 object KnowledgeSearchIndex {
     private val tokenRegex = Regex("[\\p{L}\\p{N}]+")
+    private const val SOURCE_HEADING = "## De-identified ASR transcript"
+    private const val METADATA_HEADING = "## Automatic metadata"
 
     fun build(recordings: List<RecordingEntity>): List<KnowledgeEntry> = recordings.mapNotNull { r ->
         val file = r.transcriptPath?.let(::File) ?: return@mapNotNull null
         if (!file.exists() || file.length() <= 0L) return@mapNotNull null
-        val content = runCatching { file.readText().take(MAX_INDEX_CHARS) }.getOrNull()?.takeIf(String::isNotBlank)
-            ?: return@mapNotNull null
-        KnowledgeEntry(r.id, r.fileName, r.detectedThemes, r.recordedAt, r.source.name, content)
+        val markdown = runCatching { file.readText().take(MAX_MARKDOWN_CHARS) }.getOrNull()
+            ?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        val sourceTranscript = extractSourceTranscript(markdown).take(MAX_INDEX_CHARS)
+        if (sourceTranscript.isBlank()) return@mapNotNull null
+        KnowledgeEntry(r.id, r.fileName, r.detectedThemes, r.recordedAt, r.source.name, sourceTranscript)
     }
 
     fun search(entries: List<KnowledgeEntry>, query: String, limit: Int = 50): List<KnowledgeMatch> {
@@ -53,6 +57,15 @@ object KnowledgeSearchIndex {
         return out.toString().take(maxChars)
     }
 
+    internal fun extractSourceTranscript(markdown: String): String {
+        val sourceStart = markdown.indexOf(SOURCE_HEADING)
+        if (sourceStart < 0) return markdown
+        val contentStart = sourceStart + SOURCE_HEADING.length
+        val metadataStart = markdown.indexOf(METADATA_HEADING, contentStart)
+        val contentEnd = if (metadataStart >= 0) metadataStart else markdown.length
+        return markdown.substring(contentStart, contentEnd).trim()
+    }
+
     private fun excerpt(content: String, phrase: String, terms: List<String>): String {
         val lower = content.lowercase(Locale.ROOT)
         var index = lower.indexOf(phrase)
@@ -73,5 +86,6 @@ object KnowledgeSearchIndex {
         return count
     }
 
+    private const val MAX_MARKDOWN_CHARS = 180_000
     private const val MAX_INDEX_CHARS = 120_000
 }
