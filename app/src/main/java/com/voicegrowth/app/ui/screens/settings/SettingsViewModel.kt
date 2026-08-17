@@ -29,6 +29,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setOnlyProcessOver30Sec(v: Boolean) = viewModelScope.launch { store.setOnlyProcessOver30Sec(v) }
     fun setUploadAudio(v: Boolean) = viewModelScope.launch { store.setUploadAudio(v); enqueueSync() }
     fun setUploadTranscript(v: Boolean) = viewModelScope.launch { store.setUploadTranscript(v); enqueueSync() }
+    fun setDeleteSourceAudioEnabled(v: Boolean) = viewModelScope.launch { store.setDeleteSourceAudioEnabled(v) }
     fun setDeleteLocalAudioDays(v: Int) = viewModelScope.launch { store.setDeleteLocalAudioDays(v.coerceIn(1, 30)) }
     fun setTranscriptionLanguage(v: String) = viewModelScope.launch { store.setTranscriptionLanguage(v) }
     fun setDriveFolderHierarchy(v: String) = viewModelScope.launch { store.setDriveFolderHierarchy(v) }

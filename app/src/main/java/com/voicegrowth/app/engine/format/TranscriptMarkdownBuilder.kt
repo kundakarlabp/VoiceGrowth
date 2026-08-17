@@ -64,12 +64,17 @@ Privacy screen:
 """.trimIndent()
     }
 
-    fun generateFileName(recordedAtMillis: Long, source: RecordingSource): String {
+    fun generateFileName(
+        recordedAtMillis: Long,
+        source: RecordingSource,
+        recordingId: Long? = null
+    ): String {
         val prefix = when (source) {
             RecordingSource.CALL_RECORDING -> "call"
             RecordingSource.MANUAL_DISCUSSION -> "discussion"
             RecordingSource.VOICE_REFLECTION -> "reflection"
         }
-        return "transcript_${prefix}_${FILE_DATE_FORMAT.format(Date(recordedAtMillis))}.md"
+        val uniqueSuffix = recordingId?.let { "_r$it" }.orEmpty()
+        return "transcript_${prefix}_${FILE_DATE_FORMAT.format(Date(recordedAtMillis))}$uniqueSuffix.md"
     }
 }

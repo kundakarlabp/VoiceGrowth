@@ -2,6 +2,7 @@ package com.voicegrowth.app.engine.format
 
 import com.voicegrowth.app.data.model.RecordingSource
 import com.voicegrowth.app.engine.privacy.DeidentificationResult
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,5 +23,24 @@ class TranscriptMarkdownBuilderTest {
         assertTrue(md.contains("test-engine"))
         assertTrue(md.contains("Antimicrobial stewardship"))
         assertTrue(md.contains("does not guarantee"))
+    }
+
+    @Test
+    fun filenamesAreUniqueForDifferentRecordingsAtSameSecond() {
+        val recordedAt = 1_700_000_000_000
+        val first = TranscriptMarkdownBuilder.generateFileName(
+            recordedAtMillis = recordedAt,
+            source = RecordingSource.CALL_RECORDING,
+            recordingId = 41
+        )
+        val second = TranscriptMarkdownBuilder.generateFileName(
+            recordedAtMillis = recordedAt,
+            source = RecordingSource.CALL_RECORDING,
+            recordingId = 42
+        )
+
+        assertNotEquals(first, second)
+        assertTrue(first.endsWith("_r41.md"))
+        assertTrue(second.endsWith("_r42.md"))
     }
 }

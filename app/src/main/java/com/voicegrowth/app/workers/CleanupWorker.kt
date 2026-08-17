@@ -6,11 +6,12 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.voicegrowth.app.VoiceGrowthApplication
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/** Removes local source audio only after local processing/sync has completed and retention has expired. */
+/** Removes local source audio only after the user opts in and retention has expired. */
 class CleanupWorker(
     appContext: Context,
     params: WorkerParameters
@@ -20,9 +21,11 @@ class CleanupWorker(
         val app = applicationContext as VoiceGrowthApplication
         val repository = app.container.recordingRepository
         val settings = repository.settingsFlow.first()
+        if (!settings.deleteSourceAudioEnabled) return Result.success()
+
         val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(settings.deleteLocalAudioDays.toLong())
 
-        return runCatching {
+        return try {
             val cloudUploadRequired = settings.uploadTranscript || settings.uploadAudio
             repository.getCompletedOlderThan(cutoff).forEach { recording ->
                 val requiredCloudCopiesExist =
@@ -34,7 +37,11 @@ class CleanupWorker(
                 }
             }
             Result.success()
-        }.getOrElse { Result.retry() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            Result.retry()
+        }
     }
 
     private fun deleteAudio(uriString: String, fallbackPath: String): Boolean {

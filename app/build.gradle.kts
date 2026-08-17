@@ -4,6 +4,17 @@ plugins {
     alias(libs.plugins.kotlin.ksp)
 }
 
+val releaseKeystorePath = System.getenv("VOICEGROWTH_KEYSTORE_PATH")
+val releaseKeystorePassword = System.getenv("VOICEGROWTH_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("VOICEGROWTH_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("VOICEGROWTH_KEY_PASSWORD")
+val releaseSigningConfigured = listOf(
+    releaseKeystorePath,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.voicegrowth.app"
     compileSdk = 34
@@ -12,17 +23,29 @@ android {
         applicationId = "com.voicegrowth.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseKeystorePath))
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

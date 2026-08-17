@@ -19,6 +19,7 @@ class SettingsDataStore(private val context: Context) {
         val ONLY_PROCESS_OVER_30_SEC = booleanPreferencesKey("only_process_over_30_sec")
         val UPLOAD_AUDIO = booleanPreferencesKey("upload_audio")
         val UPLOAD_TRANSCRIPT = booleanPreferencesKey("upload_transcript")
+        val DELETE_SOURCE_AUDIO_ENABLED = booleanPreferencesKey("delete_source_audio_enabled")
         val DELETE_LOCAL_AUDIO_DAYS = intPreferencesKey("delete_local_audio_days")
         val TRANSCRIPTION_LANGUAGE = stringPreferencesKey("transcription_language")
         val DRIVE_FOLDER_HIERARCHY = stringPreferencesKey("drive_folder_hierarchy")
@@ -43,6 +44,7 @@ class SettingsDataStore(private val context: Context) {
                 onlyProcessOver30Sec = preferences[PreferencesKeys.ONLY_PROCESS_OVER_30_SEC] ?: true,
                 uploadAudio = preferences[PreferencesKeys.UPLOAD_AUDIO] ?: false,
                 uploadTranscript = preferences[PreferencesKeys.UPLOAD_TRANSCRIPT] ?: true,
+                deleteSourceAudioEnabled = preferences[PreferencesKeys.DELETE_SOURCE_AUDIO_ENABLED] ?: false,
                 deleteLocalAudioDays = preferences[PreferencesKeys.DELETE_LOCAL_AUDIO_DAYS] ?: 7,
                 transcriptionLanguage = preferences[PreferencesKeys.TRANSCRIPTION_LANGUAGE] ?: "auto",
                 driveFolderHierarchy = preferences[PreferencesKeys.DRIVE_FOLDER_HIERARCHY] ?: "VoiceGrowth/Transcripts",
@@ -58,6 +60,7 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setOnlyProcessOver30Sec(enabled: Boolean) = update(PreferencesKeys.ONLY_PROCESS_OVER_30_SEC, enabled)
     suspend fun setUploadAudio(enabled: Boolean) = update(PreferencesKeys.UPLOAD_AUDIO, enabled)
     suspend fun setUploadTranscript(enabled: Boolean) = update(PreferencesKeys.UPLOAD_TRANSCRIPT, enabled)
+    suspend fun setDeleteSourceAudioEnabled(enabled: Boolean) = update(PreferencesKeys.DELETE_SOURCE_AUDIO_ENABLED, enabled)
     suspend fun setDeleteLocalAudioDays(days: Int) = update(PreferencesKeys.DELETE_LOCAL_AUDIO_DAYS, days)
     suspend fun setTranscriptionLanguage(lang: String) = update(PreferencesKeys.TRANSCRIPTION_LANGUAGE, lang)
     suspend fun setDriveFolderHierarchy(path: String) = update(PreferencesKeys.DRIVE_FOLDER_HIERARCHY, path)

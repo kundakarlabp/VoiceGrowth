@@ -1,10 +1,13 @@
 package com.voicegrowth.app.workers
 
+import android.Manifest
 import android.app.Notification
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
@@ -15,6 +18,7 @@ import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.engine.format.TranscriptMarkdownBuilder
 import com.voicegrowth.app.engine.privacy.ClinicalDeidentifier
 import com.voicegrowth.app.engine.transcription.LocalMedicalSpeechEngine
+import com.voicegrowth.app.engine.transcription.SpeechRecognitionPermissionException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
@@ -39,6 +43,13 @@ class AudioProcessingWorker(
         val pending = repository.getPendingRecordings()
         if (pending.isEmpty()) return Result.success()
 
+        if (!hasRecordAudioPermission()) {
+            pending.forEach {
+                repository.updateStatus(it.id, ProcessingStatus.PENDING, MICROPHONE_PERMISSION_MESSAGE)
+            }
+            return Result.success()
+        }
+
         setForeground(createForegroundInfo("Processing 0/${pending.size}"))
         var retryNeeded = false
 
@@ -58,6 +69,11 @@ class AudioProcessingWorker(
         val repository = app.container.recordingRepository
         var tempAudio: File? = null
         return try {
+            if (!hasRecordAudioPermission()) {
+                repository.updateStatus(recording.id, ProcessingStatus.PENDING, MICROPHONE_PERMISSION_MESSAGE)
+                return false
+            }
+
             if (settings.onlyProcessOver30Sec && recording.durationSeconds in 1 until MIN_DURATION_SECONDS) {
                 repository.updateStatusResetRetry(recording.id, ProcessingStatus.SKIPPED_TOO_SHORT)
                 return false
@@ -97,7 +113,11 @@ class AudioProcessingWorker(
                 .apply { mkdirs() }
             val transcriptFile = File(
                 transcriptDir,
-                TranscriptMarkdownBuilder.generateFileName(recording.recordedAt, recording.source)
+                TranscriptMarkdownBuilder.generateFileName(
+                    recordedAtMillis = recording.recordedAt,
+                    source = recording.source,
+                    recordingId = recording.id
+                )
             ).apply { writeText(markdown) }
 
             val requiresSync = settings.uploadTranscript || settings.uploadAudio
@@ -115,20 +135,45 @@ class AudioProcessingWorker(
             false
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
-            val message = e.message?.take(500) ?: e::class.java.simpleName
-            val attemptsAfterThisFailure = recording.retryCount + 1
-            if (attemptsAfterThisFailure >= MAX_ITEM_RETRIES) {
-                repository.recordRetry(recording.id, ProcessingStatus.FAILED, message)
+        } catch (e: SpeechRecognitionPermissionException) {
+            repository.updateStatus(recording.id, ProcessingStatus.PENDING, MICROPHONE_PERMISSION_MESSAGE)
+            false
+        } catch (e: SecurityException) {
+            if (!hasRecordAudioPermission()) {
+                repository.updateStatus(recording.id, ProcessingStatus.PENDING, MICROPHONE_PERMISSION_MESSAGE)
                 false
             } else {
-                repository.recordRetry(recording.id, ProcessingStatus.PENDING, message)
-                true
+                handleFailure(recording, e, app)
             }
+        } catch (e: Exception) {
+            handleFailure(recording, e, app)
         } finally {
             tempAudio?.delete()
         }
     }
+
+    private suspend fun handleFailure(
+        recording: RecordingEntity,
+        error: Exception,
+        app: VoiceGrowthApplication
+    ): Boolean {
+        val repository = app.container.recordingRepository
+        val message = error.message?.take(500) ?: error::class.java.simpleName
+        val attemptsAfterThisFailure = recording.retryCount + 1
+        return if (attemptsAfterThisFailure >= MAX_ITEM_RETRIES) {
+            repository.recordRetry(recording.id, ProcessingStatus.FAILED, message)
+            false
+        } else {
+            repository.recordRetry(recording.id, ProcessingStatus.PENDING, message)
+            true
+        }
+    }
+
+    private fun hasRecordAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            applicationContext,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
 
     private fun copyAudioToCache(recording: RecordingEntity): File {
         val ext = recording.fileName.substringAfterLast('.', "m4a")
@@ -172,5 +217,7 @@ class AudioProcessingWorker(
         const val WORK_NAME = "VoiceGrowth_AudioProcessing"
         private const val MIN_DURATION_SECONDS = 30L
         private const val MAX_ITEM_RETRIES = 3
+        private const val MICROPHONE_PERMISSION_MESSAGE =
+            "Microphone permission is required before transcription can continue"
     }
 }

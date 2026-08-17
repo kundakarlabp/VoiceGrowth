@@ -6,6 +6,7 @@ data class AppSettings(
     val onlyProcessOver30Sec: Boolean = true,
     val uploadAudio: Boolean = false,
     val uploadTranscript: Boolean = true,
+    val deleteSourceAudioEnabled: Boolean = false,
     val deleteLocalAudioDays: Int = 7,
     val transcriptionLanguage: String = "auto",
     val driveFolderHierarchy: String = "VoiceGrowth/Transcripts",
