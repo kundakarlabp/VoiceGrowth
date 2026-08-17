@@ -10,6 +10,7 @@ import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.sync.DriveSyncService
 import com.voicegrowth.app.sync.GoogleAuthManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
 
@@ -30,7 +31,7 @@ class DriveSyncWorker(
 
         if (!settings.uploadTranscript && !settings.uploadAudio) {
             candidates.filter { it.status != ProcessingStatus.UPLOADED }.forEach {
-                repository.updateStatus(it.id, ProcessingStatus.LOCAL_READY)
+                repository.updateStatusResetRetry(it.id, ProcessingStatus.LOCAL_READY)
             }
             return Result.success()
         }
@@ -39,10 +40,10 @@ class DriveSyncWorker(
             (settings.uploadTranscript && item.driveFileId.isNullOrBlank()) ||
                 (settings.uploadAudio && item.driveAudioFileId.isNullOrBlank())
 
-        // Reconcile stale local states without touching rows that are already fully synced.
+        // Reconcile stale local states without touching rows that still need an upload.
         candidates.filterNot(::needsUpload)
             .filter { it.status != ProcessingStatus.UPLOADED }
-            .forEach { repository.updateStatus(it.id, ProcessingStatus.UPLOADED, null) }
+            .forEach { repository.updateStatusResetRetry(it.id, ProcessingStatus.UPLOADED, null) }
 
         val pending = candidates.filter(::needsUpload)
         if (pending.isEmpty()) return Result.success()
@@ -89,11 +90,14 @@ class DriveSyncWorker(
                     repository.updateAudioUpload(current.id, audioResult.fileId)
                 }
 
-                repository.updateStatus(current.id, ProcessingStatus.UPLOADED, null)
+                repository.updateStatusResetRetry(current.id, ProcessingStatus.UPLOADED, null)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val message = e.message?.take(500) ?: e::class.java.simpleName
-                if (runAttemptCount + 1 >= MAX_RETRIES) {
-                    repository.updateStatus(candidate.id, ProcessingStatus.FAILED, "Drive sync: $message")
+                val attemptsAfterThisFailure = candidate.retryCount + 1
+                if (attemptsAfterThisFailure >= MAX_RETRIES) {
+                    repository.recordRetry(candidate.id, ProcessingStatus.FAILED, "Drive sync: $message")
                 } else {
                     repository.recordRetry(candidate.id, ProcessingStatus.WAITING_FOR_SYNC, "Drive sync: $message")
                     retryNeeded = true
@@ -102,7 +106,7 @@ class DriveSyncWorker(
                 tempAudio?.delete()
             }
         }
-        return if (retryNeeded && runAttemptCount + 1 < MAX_RETRIES) Result.retry() else Result.success()
+        return if (retryNeeded) Result.retry() else Result.success()
     }
 
     private fun audioHierarchy(settings: AppSettings): String {
