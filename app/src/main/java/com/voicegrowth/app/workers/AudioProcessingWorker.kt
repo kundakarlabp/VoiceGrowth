@@ -15,6 +15,7 @@ import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.engine.format.TranscriptMarkdownBuilder
 import com.voicegrowth.app.engine.privacy.ClinicalDeidentifier
 import com.voicegrowth.app.engine.transcription.LocalMedicalSpeechEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
 
@@ -46,7 +47,7 @@ class AudioProcessingWorker(
             val retry = processOne(recording, settings, app)
             retryNeeded = retryNeeded || retry
         }
-        return if (retryNeeded && runAttemptCount < MAX_WORK_RETRIES) Result.retry() else Result.success()
+        return if (retryNeeded) Result.retry() else Result.success()
     }
 
     private suspend fun processOne(
@@ -58,7 +59,7 @@ class AudioProcessingWorker(
         var tempAudio: File? = null
         return try {
             if (settings.onlyProcessOver30Sec && recording.durationSeconds in 1 until MIN_DURATION_SECONDS) {
-                repository.updateStatus(recording.id, ProcessingStatus.SKIPPED_TOO_SHORT)
+                repository.updateStatusResetRetry(recording.id, ProcessingStatus.SKIPPED_TOO_SHORT)
                 return false
             }
 
@@ -70,7 +71,7 @@ class AudioProcessingWorker(
                 .getOrThrow()
 
             if (settings.onlyProcessOver30Sec && transcription.durationSeconds in 1 until MIN_DURATION_SECONDS) {
-                repository.updateStatus(recording.id, ProcessingStatus.SKIPPED_TOO_SHORT)
+                repository.updateStatusResetRetry(recording.id, ProcessingStatus.SKIPPED_TOO_SHORT)
                 return false
             }
 
@@ -112,10 +113,13 @@ class AudioProcessingWorker(
 
             if (requiresSync) app.enqueueDriveSync(settings.wifiOnly)
             false
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val message = e.message?.take(500) ?: e::class.java.simpleName
-            if (runAttemptCount + 1 >= MAX_ITEM_RETRIES) {
-                repository.updateStatus(recording.id, ProcessingStatus.FAILED, message)
+            val attemptsAfterThisFailure = recording.retryCount + 1
+            if (attemptsAfterThisFailure >= MAX_ITEM_RETRIES) {
+                repository.recordRetry(recording.id, ProcessingStatus.FAILED, message)
                 false
             } else {
                 repository.recordRetry(recording.id, ProcessingStatus.PENDING, message)
@@ -168,6 +172,5 @@ class AudioProcessingWorker(
         const val WORK_NAME = "VoiceGrowth_AudioProcessing"
         private const val MIN_DURATION_SECONDS = 30L
         private const val MAX_ITEM_RETRIES = 3
-        private const val MAX_WORK_RETRIES = 3
     }
 }
