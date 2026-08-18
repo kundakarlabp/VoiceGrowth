@@ -6,10 +6,11 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.voicegrowth.app.VoiceGrowthApplication
 import com.voicegrowth.app.scanner.FolderScanner
+import com.voicegrowth.app.service.CaptureNotificationManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
-/** Periodic fallback scan so capture continues even if the monitor service is reclaimed. */
+/** Periodic fallback scan plus user-triggered Scan-now execution. */
 class FolderScanWorker(
     appContext: Context,
     params: WorkerParameters
@@ -19,22 +20,47 @@ class FolderScanWorker(
         val app = applicationContext as VoiceGrowthApplication
         val repository = app.container.recordingRepository
         val settings = repository.settingsFlow.first()
-        if (!settings.autoProcessing) return Result.success()
+        val forced = inputData.getBoolean(INPUT_FORCE_SCAN, false)
+        if (!settings.autoProcessing && !forced) return Result.success()
 
-        val folder = settings.selectedFolderUri?.takeIf { it.isNotBlank() } ?: return Result.success()
+        val folder = settings.selectedFolderUri?.takeIf { it.isNotBlank() }
+        if (folder == null) {
+            if (forced) CaptureNotificationManager.showReady(applicationContext, "Choose the call-recording folder in VoiceGrowth Settings")
+            return Result.success()
+        }
+
         return try {
             val newCount = FolderScanner(applicationContext, repository)
                 .scanFolder(Uri.parse(folder), settings)
             if (newCount > 0) app.enqueueAudioProcessing()
+            if (forced) {
+                CaptureNotificationManager.showReady(
+                    applicationContext,
+                    if (newCount > 0) "$newCount new recording(s) queued" else "Folder checked · no new completed recordings"
+                )
+            }
             Result.success()
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
-            Result.retry()
+        } catch (e: SecurityException) {
+            CaptureNotificationManager.showReady(applicationContext, "Call-folder access was lost · re-select it in Settings")
+            Result.success()
+        } catch (e: Exception) {
+            if (forced) {
+                CaptureNotificationManager.showReady(
+                    applicationContext,
+                    "Folder scan failed: ${(e.message ?: e::class.java.simpleName).take(90)}"
+                )
+                Result.success()
+            } else {
+                Result.retry()
+            }
         }
     }
 
     companion object {
         const val WORK_NAME = "VoiceGrowth_FolderScan"
+        const val ONE_TIME_WORK_NAME = "VoiceGrowth_FolderScanNow"
+        const val INPUT_FORCE_SCAN = "force_scan"
     }
 }
