@@ -1,5 +1,6 @@
 package com.voicegrowth.app.ui.screens.settings
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -54,6 +55,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
     val aiMessage by viewModel.aiMessage.collectAsState()
     val aiProgress by viewModel.aiProgress.collectAsState()
     val folderStatus by viewModel.folderStatus.collectAsState()
+    val driveTreeStatus by viewModel.driveTreeStatus.collectAsState()
     val drive by viewModel.driveUiState.collectAsState()
     val driveResolution by viewModel.driveResolution.collectAsState()
     val context = LocalContext.current
@@ -63,12 +65,20 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
         if (uri != null) viewModel.configureRecordingFolder(uri)
     }
 
+    val driveFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri != null) viewModel.configureDriveTree(uri)
+    }
+
     val aiModelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) viewModel.importAiModel(uri)
     }
 
     val driveAuthorization = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        viewModel.completeDriveAuthorization(result.data)
+        if (result.resultCode == Activity.RESULT_OK) {
+            viewModel.completeDriveAuthorization(result.data)
+        } else {
+            viewModel.cancelDriveAuthorization()
+        }
     }
 
     LaunchedEffect(driveResolution) {
@@ -125,7 +135,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                         }
                     }
                     Text(
-                        "Choose the highest iQOO/Funtouch folder that contains call recordings. VoiceGrowth now checks nested subfolders and verifies that Android retained read access.",
+                        "Choose the highest iQOO/Funtouch folder that contains call recordings. VoiceGrowth checks nested subfolders and verifies that Android retained read access.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -166,7 +176,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
 
             SectionTitle("Automation & processing")
             Toggle("Automatic processing", "Periodic WorkManager scans detect completed recordings without keeping a permanent data-sync foreground service alive.", settings.autoProcessing, viewModel::setAutoProcessing)
-            Toggle("Wi-Fi only sync", "Drive uploads require an unmetered network.", settings.wifiOnly, viewModel::setWifiOnly)
+            Toggle("Wi-Fi only sync", "Cloud uploads require an unmetered network.", settings.wifiOnly, viewModel::setWifiOnly)
             Toggle("Only process recordings >30s", "Skip brief calls and accidental recordings.", settings.onlyProcessOver30Sec, viewModel::setOnlyProcessOver30Sec)
 
             Text("Transcription language", fontWeight = FontWeight.SemiBold)
@@ -260,43 +270,85 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
             Toggle("Upload original audio", "Original audio is NOT de-identified and may contain patient identifiers. Keep this off unless specifically required.", settings.uploadAudio, viewModel::setUploadAudio)
 
             OutlinedCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Google Drive", fontWeight = FontWeight.SemiBold)
-                    Text("Destination: ${settings.driveFolderHierarchy}", style = MaterialTheme.typography.bodySmall)
+                    Text("Recommended connection", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Choose a Google Drive folder through Android Files. This avoids OAuth client/SHA-1 problems: the Drive app/provider handles your Google account and VoiceGrowth receives only read/write access to the folder you select.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    if (settings.driveTreeUri.isNullOrBlank()) {
+                        Text("No Drive folder selected", style = MaterialTheme.typography.bodyMedium)
+                        Button(onClick = { driveFolderPicker.launch(null) }) {
+                            Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Choose Google Drive folder")
+                        }
+                        Text(
+                            "In the system picker: open the side menu → Google Drive → choose My Drive or a parent folder → Use this folder / Allow. VoiceGrowth will create ${settings.driveFolderHierarchy}/YYYY/MM-MMM inside it.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else {
+                        val status = driveTreeStatus
+                        Text("Selected: ${settings.driveTreeDisplayName ?: status?.displayName ?: "Cloud folder"}")
+                        status?.let {
+                            Text(
+                                it.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (it.usable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                "Persistent access: read ${if (it.persistedReadPermission) "✓" else "✗"} · write ${if (it.persistedWritePermission) "✓" else "✗"}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Text("Destination under selected folder: ${settings.driveFolderHierarchy}/YYYY/MM-MMM", style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { driveFolderPicker.launch(Uri.parse(settings.driveTreeUri)) }) {
+                                Text("Change folder")
+                            }
+                            OutlinedButton(onClick = { viewModel.refreshDriveTreeStatus(testWrite = true) }) {
+                                Text("Test & sync")
+                            }
+                        }
+                        OutlinedButton(onClick = viewModel::disconnectDriveTree) { Text("Disconnect Drive folder") }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+                    Text("Advanced: Google OAuth API", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Optional. Use this only if you specifically want direct Drive REST API access. It requires an Android OAuth client whose package and signing SHA-1 exactly match this APK.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     Text(
                         when {
-                            drive.checking -> "Checking authorization…"
-                            drive.authorized -> "Connected: ${drive.accountLabel ?: "Google account"}"
-                            else -> "Not connected"
-                        }
+                            drive.checking -> "Checking OAuth authorization…"
+                            drive.authorized -> "OAuth connected: ${drive.accountLabel ?: "Google account"}"
+                            else -> "OAuth not connected (not required when Drive folder sync is healthy)"
+                        },
+                        style = MaterialTheme.typography.bodySmall
                     )
                     drive.message?.let {
                         Text(
                             it,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (drive.authorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            color = if (drive.authorized || !settings.driveTreeUri.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
                         )
                     }
-                    Text("Installed OAuth identity", fontWeight = FontWeight.SemiBold)
-                    Text("Package: ${drive.packageName.ifBlank { context.packageName }}", style = MaterialTheme.typography.bodySmall)
+                    Text("OAuth identity: ${drive.packageName.ifBlank { context.packageName }}", style = MaterialTheme.typography.bodySmall)
                     Text("SHA-1: ${drive.signingSha1.ifBlank { "Checking…" }}", style = MaterialTheme.typography.bodySmall)
-                    Text(
-                        "If you see OAuth client mismatch / status 10, these exact package + SHA-1 values must exist in the Android OAuth client in the same Google Cloud project where Drive API is enabled.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
+                        OutlinedButton(
                             enabled = !drive.checking,
                             onClick = { viewModel.connectDrive(forceAccountPicker = true) }
                         ) {
-                            Text(if (drive.authorized) "Switch account" else "Connect Google Drive")
+                            Text(if (drive.authorized) "Switch OAuth account" else "Connect with OAuth")
                         }
                         OutlinedButton(enabled = !drive.checking, onClick = viewModel::refreshDriveAuthorization) {
-                            Text("Recheck")
+                            Text("Recheck OAuth")
                         }
                     }
                     if (drive.authorized || settings.googleAccountEmail != null) {
-                        OutlinedButton(enabled = !drive.checking, onClick = viewModel::disconnectDrive) { Text("Disconnect") }
+                        OutlinedButton(enabled = !drive.checking, onClick = viewModel::disconnectDrive) { Text("Disconnect OAuth") }
                     }
                 }
             }
