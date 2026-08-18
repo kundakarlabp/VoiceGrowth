@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
         val app = application as VoiceGrowthApplication
         CaptureNotificationManager.showReady(this)
         if (hasRecordAudioPermission()) app.enqueueAudioProcessing()
-        app.enqueueFolderScanNow()
+        app.enqueueFolderScanNow(force = false)
         settingsViewModel.refreshRuntimeDiagnostics()
     }
 
