@@ -4,4 +4,6 @@
     <string name="channel_processing_desc">Notifications for ongoing transcription and Drive sync</string>
     <string name="channel_recording_name">Discussion Recording</string>
     <string name="channel_recording_desc">Notifications when recording bedside or academic discussions</string>
+    <string name="channel_capture_name">VoiceGrowth Capture Controls</string>
+    <string name="channel_capture_desc">Persistent Record, Stop and Scan controls for VoiceGrowth, including the lock screen</string>
 </resources>
