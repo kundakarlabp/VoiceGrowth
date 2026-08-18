@@ -1,4 +1,4 @@
-# VoiceGrowth Android Companion — v1.3.1
+# VoiceGrowth Android Companion — v1.3.2
 
 VoiceGrowth is a privacy-first Android companion for low-friction capture of iQOO/Funtouch call recordings, bedside/academic discussions, voice reflections, and imported audio. It performs local speech-to-text, de-identification, optional on-device Gemma/LiteRT-LM synthesis, searchable local knowledge retrieval, structured Markdown, and optional Google Drive sync.
 
@@ -22,9 +22,45 @@ Markdown preserves BOTH AI synthesis and source ASR transcript
 Optional Google Drive sync
 ```
 
-## v1.3.1 production hardening
+## v1.3.2 Drive reliability
 
-This release focuses on the device issues found during real iQOO use rather than adding another AI layer.
+The normal Drive path no longer depends on Android OAuth registration.
+
+### Recommended Drive connection — Android Storage Access Framework
+
+1. Open **Settings → Google Drive**.
+2. Tap **Choose Google Drive folder**.
+3. In Android Files, open the side menu and choose **Google Drive**.
+4. Choose **My Drive** or another parent folder, then tap **Use this folder / Allow**.
+5. VoiceGrowth persists read/write tree access and performs a create/write/delete verification before accepting the folder.
+6. Existing waiting transcripts are queued for sync automatically.
+
+VoiceGrowth creates the configured hierarchy inside the selected folder, by default:
+
+```text
+VoiceGrowth/Transcripts/YYYY/MM-MMM
+```
+
+Original audio, when explicitly enabled, uses the corresponding `VoiceGrowth/Audio/...` hierarchy.
+
+This path relies on Android's system document provider. The Google Drive app/provider owns Google-account authentication and cloud transport. VoiceGrowth receives access only to the folder tree the user selected. Therefore the normal sync path requires **no VoiceGrowth OAuth client, no package/SHA-1 registration, no embedded Google login, and no access-token handling**.
+
+Settings shows the selected folder, persisted read/write state, and **Test & sync**, **Change folder**, and **Disconnect Drive folder** actions.
+
+### Optional advanced OAuth path
+
+The existing Google Identity Services `AuthorizationClient` + Drive REST implementation remains available under **Advanced: Google OAuth API**. It requests only `https://www.googleapis.com/auth/drive.file`.
+
+OAuth is optional when SAF Drive-folder sync is healthy. If OAuth is used, its Android OAuth client must still exactly match:
+
+```text
+package: com.voicegrowth.app
+SHA-1: shown live in VoiceGrowth → Settings → Google Drive
+```
+
+GitHub debug APKs can have different signing certificates between builds, so SAF is the recommended debug/personal-install path. Stable release signing remains the durable choice for production OAuth.
+
+## v1.3.1 production hardening retained
 
 ### Capture and screen-off reliability
 
@@ -32,7 +68,7 @@ This release focuses on the device issues found during real iQOO use rather than
 - During recording, the foreground notification shows a chronometer and a direct **Stop** action.
 - Microphone recording holds a bounded partial wake lock while active so screen-off CPU sleep does not interrupt capture.
 - Quick Settings capture and notification capture are routed through a tiny show-when-locked activity before the microphone foreground service is created on current Android versions.
-- VoiceGrowth no longer keeps a permanent 60-second `dataSync` foreground monitor alive. OEM-call discovery uses 15-minute WorkManager fallback scans plus explicit Scan-now and setup-triggered scans.
+- VoiceGrowth does not keep a permanent 60-second `dataSync` foreground monitor alive. OEM-call discovery uses 15-minute WorkManager fallback scans plus explicit Scan-now and setup-triggered scans.
 
 ### Call-recording folder
 
@@ -41,23 +77,6 @@ This release focuses on the device issues found during real iQOO use rather than
 - Scanning is recursive (bounded depth/node count) so nested iQOO/Funtouch recording folders are supported.
 - Lost permissions produce an actionable re-select message instead of silently returning an empty scan.
 - Older raw labels such as `primary:Recordings/Record` are repaired to the folder's readable display name during diagnostics.
-
-### Google Drive
-
-- Drive authorization now uses **Google Identity Services `AuthorizationClient`** rather than the deprecated `GoogleSignInClient` scope flow.
-- The app requests only `https://www.googleapis.com/auth/drive.file` and sends the resulting short-lived bearer token to the Drive REST client.
-- Authorization/configuration failures do not consume a recording's per-file retry budget.
-- **Status 10 / OAuth client mismatch** is translated into an actionable diagnostic that displays the exact installed package name and signing SHA-1.
-- The Settings screen provides **Connect**, **Recheck**, and **Disconnect** actions.
-
-A Google Cloud Android OAuth client still has to match the APK actually installed on the phone:
-
-```text
-package: com.voicegrowth.app
-SHA-1: shown live in VoiceGrowth → Settings → Google Drive
-```
-
-The Google Drive API must be enabled in the same Cloud project. GitHub debug APKs may have different signing certificates between builds; the durable configuration is the repository's secret-backed stable release-signing workflow.
 
 ### On-device AI model setup
 
@@ -117,16 +136,17 @@ VoiceGrowth does not claim speaker diarization and does not use direct long-audi
 5. LLM output can be wrong despite evidence-constrained prompting and must be checked against source transcripts.
 6. Original audio is not de-identified. Original-audio Drive upload is therefore off by default.
 7. LiteRT-LM speed/GPU support are device/model dependent. AI failure does not block transcript creation.
-8. iQOO/Funtouch background-management behavior cannot be fully validated in GitHub CI; perform the screen-off smoke test below on the target device.
+8. Google Drive must be available as a DocumentsProvider in Android Files for the recommended SAF sync path. If it is not exposed by the installed Drive app/provider, use the optional OAuth path.
+9. iQOO/Funtouch background-management behavior cannot be fully validated in GitHub CI; perform the screen-off smoke test below on the target device.
 
 ## iQOO / Funtouch setup and smoke test
 
 1. Enable native automatic call recording.
 2. Grant VoiceGrowth microphone and notification permissions.
 3. In Settings, select the OEM recording folder and press **Test & scan**. Confirm access is healthy and visible audio is non-zero when recordings exist.
-4. Open **Notification settings** and keep the **VoiceGrowth Capture Controls** channel enabled. If Funtouch removes controls, also review the app/battery settings and allow background activity/auto-start as appropriate for the device.
+4. Open **Notification settings** and keep the **VoiceGrowth Capture Controls** channel enabled. If Funtouch removes controls, also review app/battery settings and allow background activity/auto-start as appropriate for the device.
 5. Lock the phone, start a short VoiceGrowth recording from the notification or Quick Settings tile, leave the screen off for 2–3 minutes, then use **Stop**. Confirm the recording appears and processes.
-6. For Drive, read the package + SHA-1 displayed in Settings, configure that Android OAuth client in Google Cloud, then press **Recheck / Connect**.
+6. For Drive, choose a Google Drive folder through Android Files and press **Test & sync**. Confirm a waiting transcript changes to uploaded and appears under the VoiceGrowth hierarchy in Drive.
 7. For AI, download a compatible `.litertlm`, import it, confirm visible progress, then test one short transcript before enabling the daily digest.
 
 ## Build
