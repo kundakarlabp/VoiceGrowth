@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -18,13 +19,13 @@ import com.voicegrowth.app.ui.MainActivity
  *
  * The ready notification is a normal ongoing notification, not a long-running foreground service.
  * When the user taps Record, PendingIntent.getForegroundService() starts the microphone service as
- * a direct notification interaction, which is an Android-documented while-in-use FGS exemption.
+ * a direct notification interaction, which is a user-initiated foreground-service launch path.
  */
 object CaptureNotificationManager {
     const val READY_NOTIFICATION_ID = 1999
 
     fun showReady(context: Context, statusText: String? = null) {
-        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        if (!canPostNotifications(context)) return
 
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
@@ -84,6 +85,13 @@ object CaptureNotificationManager {
 
     fun hideReady(context: Context) {
         NotificationManagerCompat.from(context).cancel(READY_NOTIFICATION_ID)
+    }
+
+    fun canPostNotifications(context: Context): Boolean {
+        val runtimeGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        return runtimeGranted && NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
 
     fun openAppPendingIntent(context: Context): PendingIntent = PendingIntent.getActivity(
