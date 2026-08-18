@@ -43,7 +43,7 @@ object GoogleAuthManager {
     }
 
     suspend fun revoke(context: Context): Result<Unit> = runCatching {
-        val request = RevokeAccessRequest.Builder()
+        val request = RevokeAccessRequest.builder()
             .setScopes(listOf(driveScope))
             .build()
         Identity.getAuthorizationClient(context).revokeAccess(request).await()
