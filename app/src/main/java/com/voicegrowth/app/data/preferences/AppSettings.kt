@@ -10,6 +10,8 @@ data class AppSettings(
     val deleteLocalAudioDays: Int = 7,
     val transcriptionLanguage: String = "auto",
     val driveFolderHierarchy: String = "VoiceGrowth/Transcripts",
+    val driveTreeUri: String? = null,
+    val driveTreeDisplayName: String? = null,
     val clinicalPrivacyMode: Boolean = true,
     val aiEnabled: Boolean = false,
     val aiModelPath: String? = null,
