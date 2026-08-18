@@ -15,6 +15,8 @@ import com.voicegrowth.app.scanner.FolderAccessStatus
 import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.sync.AppIdentityDiagnostics
 import com.voicegrowth.app.sync.DriveAuthorizationAttempt
+import com.voicegrowth.app.sync.DriveTreeStatus
+import com.voicegrowth.app.sync.DriveTreeSyncService
 import com.voicegrowth.app.sync.GoogleAuthManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +42,7 @@ data class DriveUiState(
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as VoiceGrowthApplication
     private val store = app.container.settingsDataStore
+    private val driveTreeService = DriveTreeSyncService(app)
 
     private val _aiImporting = MutableStateFlow(false)
     val aiImporting: StateFlow<Boolean> = _aiImporting.asStateFlow()
@@ -50,6 +53,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _folderStatus = MutableStateFlow<FolderAccessStatus?>(null)
     val folderStatus: StateFlow<FolderAccessStatus?> = _folderStatus.asStateFlow()
+
+    private val _driveTreeStatus = MutableStateFlow<DriveTreeStatus?>(null)
+    val driveTreeStatus: StateFlow<DriveTreeStatus?> = _driveTreeStatus.asStateFlow()
 
     private val _driveUiState = MutableStateFlow(DriveUiState())
     val driveUiState: StateFlow<DriveUiState> = _driveUiState.asStateFlow()
@@ -141,6 +147,87 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         refreshFolderStatus()
     }
 
+    /** Recommended Drive connection: user-selected cloud folder through Android SAF. */
+    fun configureDriveTree(uri: Uri) = viewModelScope.launch {
+        _driveTreeStatus.value = DriveTreeStatus(
+            usable = false,
+            persistedReadPermission = false,
+            persistedWritePermission = false,
+            displayName = "Selected folder",
+            providerAuthority = uri.authority,
+            message = "Checking cloud-folder access…"
+        )
+        val persisted = withContext(Dispatchers.IO) { driveTreeService.persistPermission(uri) }
+        if (persisted.isFailure) {
+            _driveTreeStatus.value = withContext(Dispatchers.IO) { driveTreeService.inspect(uri) }.copy(
+                usable = false,
+                message = "Could not retain read/write access: ${(persisted.exceptionOrNull()?.message ?: "select the folder again").take(180)}"
+            )
+            return@launch
+        }
+
+        val verified = withContext(Dispatchers.IO) { driveTreeService.verifyWrite(uri) }
+        if (verified.isFailure) {
+            _driveTreeStatus.value = withContext(Dispatchers.IO) { driveTreeService.inspect(uri) }.copy(
+                usable = false,
+                message = "Cloud-folder write test failed: ${(verified.exceptionOrNull()?.message ?: "unknown error").take(180)}"
+            )
+            return@launch
+        }
+
+        val status = verified.getOrThrow()
+        _driveTreeStatus.value = status
+        store.setDriveTree(uri.toString(), status.displayName)
+        _driveUiState.value = diagnosticsState(
+            authorized = false,
+            checking = false,
+            message = "Using Android Files/SAF for Drive sync. OAuth is not required."
+        )
+        enqueueSync()
+    }
+
+    fun refreshDriveTreeStatus(testWrite: Boolean = false) = viewModelScope.launch {
+        val current = store.settingsFlow.first()
+        val raw = current.driveTreeUri
+        if (raw.isNullOrBlank()) {
+            _driveTreeStatus.value = null
+            return@launch
+        }
+        val uri = Uri.parse(raw)
+        val status = withContext(Dispatchers.IO) {
+            if (testWrite) {
+                driveTreeService.verifyWrite(uri).getOrElse { error ->
+                    driveTreeService.inspect(uri).copy(
+                        usable = false,
+                        message = "Cloud-folder write test failed: ${(error.message ?: error::class.java.simpleName).take(180)}"
+                    )
+                }
+            } else {
+                driveTreeService.inspect(uri)
+            }
+        }
+        _driveTreeStatus.value = status
+        if (status.usable && status.displayName != current.driveTreeDisplayName) {
+            store.setDriveTree(raw, status.displayName)
+        }
+        if (status.usable && testWrite) enqueueSync()
+    }
+
+    fun disconnectDriveTree() = viewModelScope.launch {
+        val current = store.settingsFlow.first()
+        current.driveTreeUri?.let { raw ->
+            withContext(Dispatchers.IO) { driveTreeService.releasePermission(Uri.parse(raw)) }
+        }
+        store.setDriveTree(null, null)
+        _driveTreeStatus.value = null
+        _driveUiState.value = diagnosticsState(
+            checking = false,
+            message = "Cloud folder disconnected. Choose a Drive folder or use the optional OAuth connection."
+        )
+        refreshDriveAuthorization()
+    }
+
+    /** Optional advanced OAuth path retained for users who prefer direct Drive REST access. */
     fun connectDrive(forceAccountPicker: Boolean = true) = viewModelScope.launch {
         _driveUiState.value = diagnosticsState(checking = true, message = "Checking Google Drive authorization…")
         try {
@@ -173,11 +260,28 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun cancelDriveAuthorization() {
+        _driveUiState.value = diagnosticsState(
+            checking = false,
+            message = "Google account authorization was cancelled. You can use the recommended Drive folder method instead."
+        )
+    }
+
     fun consumeDriveResolution() {
         _driveResolution.value = null
     }
 
     fun refreshDriveAuthorization() = viewModelScope.launch {
+        val current = store.settingsFlow.first()
+        if (!current.driveTreeUri.isNullOrBlank()) {
+            _driveUiState.value = diagnosticsState(
+                authorized = false,
+                checking = false,
+                message = "Drive folder sync is configured through Android Files. OAuth is optional."
+            )
+            return@launch
+        }
+
         val previous = _driveUiState.value
         _driveUiState.value = diagnosticsState(checking = true, message = previous.message)
         try {
@@ -187,7 +291,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     _driveUiState.value = diagnosticsState(
                         authorized = false,
                         checking = false,
-                        message = "Google Drive is not authorized yet. Tap Connect Google Drive."
+                        message = "OAuth is not authorized. Recommended: choose a Drive folder above; no OAuth setup is required."
                     )
                 }
             }
@@ -208,7 +312,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _driveUiState.value = diagnosticsState(
             authorized = false,
             checking = false,
-            message = if (result.isSuccess) "Google Drive disconnected" else "Local Drive connection cleared; Google revocation could not be confirmed."
+            message = if (result.isSuccess) "Google OAuth access disconnected" else "Local OAuth connection cleared; Google revocation could not be confirmed."
         )
     }
 
@@ -250,7 +354,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshRuntimeDiagnostics() {
         refreshFolderStatus()
-        refreshDriveAuthorization()
+        viewModelScope.launch {
+            val current = store.settingsFlow.first()
+            if (current.driveTreeUri.isNullOrBlank()) {
+                refreshDriveAuthorization()
+            } else {
+                refreshDriveTreeStatus()
+                _driveUiState.value = diagnosticsState(
+                    checking = false,
+                    message = "Drive folder sync is configured through Android Files. OAuth is optional."
+                )
+            }
+        }
         CaptureNotificationManager.showReady(app)
     }
 
@@ -263,7 +378,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             authorized = true,
             accountLabel = label,
             checking = false,
-            message = "Google Drive authorized with drive.file access."
+            message = "Google OAuth authorized with drive.file access."
         )
         if (enqueue) enqueueSync()
     }
