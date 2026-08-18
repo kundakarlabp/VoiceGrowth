@@ -2,7 +2,9 @@ package com.voicegrowth.app.ui.screens.settings
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,7 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -33,18 +35,16 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.voicegrowth.app.sync.GoogleAuthManager
+import com.voicegrowth.app.service.CaptureNotificationManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,51 +52,40 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
     val settings by viewModel.settingsState.collectAsState()
     val aiImporting by viewModel.aiImporting.collectAsState()
     val aiMessage by viewModel.aiMessage.collectAsState()
+    val aiProgress by viewModel.aiProgress.collectAsState()
+    val folderStatus by viewModel.folderStatus.collectAsState()
+    val drive by viewModel.driveUiState.collectAsState()
+    val driveResolution by viewModel.driveResolution.collectAsState()
     val context = LocalContext.current
-    var driveMessage by remember { mutableStateOf<String?>(null) }
-    val authorizedAccount = GoogleAuthManager.getSignedInAccount(context)
+    val uriHandler = LocalUriHandler.current
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                )
-            }.recoverCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            viewModel.setSelectedFolder(uri.toString(), uri.lastPathSegment ?: "Call recordings")
-        }
+        if (uri != null) viewModel.configureRecordingFolder(uri)
     }
 
     val aiModelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) viewModel.importAiModel(uri)
     }
 
-    val googleSignIn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        runCatching { GoogleSignIn.getSignedInAccountFromIntent(result.data).result }
-            .onSuccess { account ->
-                val authorized = GoogleAuthManager.getSignedInAccount(context)
-                if (authorized != null) {
-                    viewModel.setGoogleAccount(authorized.email ?: account.email)
-                    driveMessage = "Google Drive connected"
-                } else {
-                    viewModel.setGoogleAccount(null)
-                    driveMessage = "Google sign-in completed, but Drive permission was not granted"
-                }
-            }
-            .onFailure { error ->
-                val stillAuthorized = GoogleAuthManager.getSignedInAccount(context)
-                viewModel.setGoogleAccount(stillAuthorized?.email)
-                driveMessage = error.message?.take(160) ?: "Google Drive sign-in was cancelled or failed"
-            }
+    val driveAuthorization = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        viewModel.completeDriveAuthorization(result.data)
+    }
+
+    LaunchedEffect(driveResolution) {
+        driveResolution?.let { pending ->
+            driveAuthorization.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+            viewModel.consumeDriveResolution()
+        }
     }
 
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Settings & automation", fontWeight = FontWeight.Bold) },
-            navigationIcon = { IconButton(onClick = onNavigateBack) { Icon(Icons.Default.ArrowBack, "Back") } }
+            navigationIcon = {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                }
+            }
         )
     }) { padding ->
         Column(
@@ -105,23 +94,78 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
         ) {
             SectionTitle("Recording source")
             OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Text("Call recording folder", fontWeight = FontWeight.SemiBold)
                     Text(settings.selectedFolderDisplayName ?: "Not selected", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(10.dp))
-                    Button(onClick = { folderPicker.launch(null) }) {
-                        Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Choose folder")
+                    folderStatus?.let { status ->
+                        Text(
+                            status.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (status.accessible && status.persistedReadPermission) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
+                        )
+                        if (status.accessible) {
+                            Text(
+                                "Visible audio: ${status.audioFileCount} · folders checked: ${status.visitedDirectoryCount}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            folderPicker.launch(settings.selectedFolderUri?.let(Uri::parse))
+                        }) {
+                            Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Choose folder")
+                        }
+                        if (settings.selectedFolderUri != null) {
+                            OutlinedButton(onClick = viewModel::scanSelectedFolderNow) { Text("Test & scan") }
+                        }
+                    }
                     Text(
-                        "For one-tap voice capture, add the VoiceGrowth capture tile from Android Quick Settings. Audio files can also be shared to VoiceGrowth from Files, WhatsApp or other apps.",
+                        "Choose the highest iQOO/Funtouch folder that contains call recordings. VoiceGrowth now checks nested subfolders and verifies that Android retained read access.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Lock-screen & notification controls", fontWeight = FontWeight.SemiBold)
+                    val notificationReady = CaptureNotificationManager.canPostNotifications(context)
+                    Text(
+                        if (notificationReady) {
+                            "Notification access is available. VoiceGrowth can keep Record / Scan controls in the notification shade and lock screen."
+                        } else {
+                            "VoiceGrowth notifications are blocked. Persistent Record / Stop / Scan controls cannot appear until notifications are enabled."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (notificationReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            )
+                        }) { Text("Notification settings") }
+                        OutlinedButton(onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                            )
+                        }) { Text("App / battery settings") }
+                    }
+                    Text(
+                        "On iQOO/Funtouch, also allow background activity/auto-start and avoid aggressive battery restriction if the OS removes VoiceGrowth controls.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
 
             SectionTitle("Automation & processing")
-            Toggle("Automatic processing", "Detect and transcribe newly completed recordings.", settings.autoProcessing, viewModel::setAutoProcessing)
+            Toggle("Automatic processing", "Periodic WorkManager scans detect completed recordings without keeping a permanent data-sync foreground service alive.", settings.autoProcessing, viewModel::setAutoProcessing)
             Toggle("Wi-Fi only sync", "Drive uploads require an unmetered network.", settings.wifiOnly, viewModel::setWifiOnly)
             Toggle("Only process recordings >30s", "Skip brief calls and accidental recordings.", settings.onlyProcessOver30Sec, viewModel::setOnlyProcessOver30Sec)
 
@@ -136,7 +180,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 }
             }
             Text(
-                "Speech-to-text uses Android's on-device speech recognizer. LiteRT-LM is used after ASR for optional private AI structuring, not as the primary long-audio transcriber.",
+                "Speech-to-text uses Android's on-device speech recognizer. LiteRT-LM is used after ASR for private structuring, not as the primary long-audio transcriber.",
                 style = MaterialTheme.typography.bodySmall
             )
 
@@ -150,7 +194,35 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(
-                        "VoiceGrowth sends only forcibly de-identified text to the library-query and daily-digest AI paths. AI failure never blocks transcript creation.",
+                        "Recommended starting model: Gemma 3 1B IT INT4 LiteRT-LM (about 557 MiB). Downloading may require signing in to Hugging Face and accepting the Gemma license once.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { uriHandler.openUri(RECOMMENDED_MODEL_PAGE) }) {
+                            Text("Get Gemma 3 1B")
+                        }
+                        Button(
+                            enabled = !aiImporting,
+                            onClick = { aiModelPicker.launch(arrayOf("application/octet-stream", "*/*")) }
+                        ) {
+                            Text(if (aiImporting) "Importing…" else if (settings.aiModelPath == null) "Import downloaded model" else "Replace model")
+                        }
+                    }
+                    aiProgress?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    aiMessage?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (it.startsWith("Model import failed")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if (settings.aiModelPath != null) {
+                        OutlinedButton(enabled = !aiImporting, onClick = viewModel::removeAiModel) { Text("Remove imported model") }
+                    }
+                    Text(
+                        "The picker must select the actual .litertlm file from Downloads/Files. VoiceGrowth checks free space and shows copy progress; a failed replacement keeps the previous working model.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Toggle(
@@ -178,26 +250,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                             label = { Text("CPU only") }
                         )
                     }
-                    Text(
-                        "GPU first automatically falls back to CPU if LiteRT-LM cannot initialize the GPU backend.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            enabled = !aiImporting,
-                            onClick = { aiModelPicker.launch(arrayOf("*/*")) }
-                        ) {
-                            Text(if (aiImporting) "Importing…" else if (settings.aiModelPath == null) "Import .litertlm model" else "Replace model")
-                        }
-                        if (settings.aiModelPath != null) {
-                            OutlinedButton(enabled = !aiImporting, onClick = viewModel::removeAiModel) { Text("Remove") }
-                        }
-                    }
-                    Text(
-                        "Android app isolation prevents VoiceGrowth from directly reading AI Edge Gallery's private model file. Select an accessible .litertlm file; VoiceGrowth copies it once into its own private storage.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    aiMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    Text("GPU first automatically falls back to CPU if LiteRT-LM cannot initialize the GPU backend.", style = MaterialTheme.typography.bodySmall)
                 }
             }
 
@@ -205,6 +258,48 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
             Toggle("Clinical privacy mode", "Pattern-based redaction before AI processing and transcript upload; manual review is still recommended.", settings.clinicalPrivacyMode, viewModel::setClinicalPrivacyMode)
             Toggle("Upload transcript (.md)", "Sync the locally processed Markdown transcript and optional AI synthesis to Drive.", settings.uploadTranscript, viewModel::setUploadTranscript)
             Toggle("Upload original audio", "Original audio is NOT de-identified and may contain patient identifiers. Keep this off unless specifically required.", settings.uploadAudio, viewModel::setUploadAudio)
+
+            OutlinedCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Google Drive", fontWeight = FontWeight.SemiBold)
+                    Text("Destination: ${settings.driveFolderHierarchy}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        when {
+                            drive.checking -> "Checking authorization…"
+                            drive.authorized -> "Connected: ${drive.accountLabel ?: "Google account"}"
+                            else -> "Not connected"
+                        }
+                    )
+                    drive.message?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (drive.authorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Text("Installed OAuth identity", fontWeight = FontWeight.SemiBold)
+                    Text("Package: ${drive.packageName.ifBlank { context.packageName }}", style = MaterialTheme.typography.bodySmall)
+                    Text("SHA-1: ${drive.signingSha1.ifBlank { "Checking…" }}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "If you see OAuth client mismatch / status 10, these exact package + SHA-1 values must exist in the Android OAuth client in the same Google Cloud project where Drive API is enabled.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            enabled = !drive.checking,
+                            onClick = { viewModel.connectDrive(forceAccountPicker = true) }
+                        ) {
+                            Text(if (drive.authorized) "Switch account" else "Connect Google Drive")
+                        }
+                        OutlinedButton(enabled = !drive.checking, onClick = viewModel::refreshDriveAuthorization) {
+                            Text("Recheck")
+                        }
+                    }
+                    if (drive.authorized || settings.googleAccountEmail != null) {
+                        OutlinedButton(enabled = !drive.checking, onClick = viewModel::disconnectDrive) { Text("Disconnect") }
+                    }
+                }
+            }
 
             SectionTitle("Storage & retention")
             Toggle(
@@ -230,39 +325,6 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                     )
                 }
             }
-
-            OutlinedCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Google Drive", fontWeight = FontWeight.SemiBold)
-                    Text("Destination: ${settings.driveFolderHierarchy}", style = MaterialTheme.typography.bodySmall)
-                    Text(authorizedAccount?.email?.let { "Connected: $it" } ?: "Not connected")
-                    if (settings.googleAccountEmail != null && authorizedAccount == null) {
-                        Text(
-                            "The previously saved account is no longer authorized. Reconnect before sync.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    driveMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            driveMessage = null
-                            googleSignIn.launch(GoogleAuthManager.getSignInClient(context).signInIntent)
-                        }) {
-                            Text(if (authorizedAccount == null) "Connect Google Drive" else "Switch account")
-                        }
-                        if (authorizedAccount != null || settings.googleAccountEmail != null) {
-                            OutlinedButton(onClick = {
-                                GoogleAuthManager.getSignInClient(context).signOut().addOnCompleteListener {
-                                    viewModel.setGoogleAccount(null)
-                                    driveMessage = "Google Drive disconnected"
-                                }
-                            }) { Text("Disconnect") }
-                        }
-                    }
-                }
-            }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -286,3 +348,5 @@ private fun Toggle(title: String, subtitle: String, checked: Boolean, onChange: 
         Spacer(Modifier.width(12.dp)); Switch(checked = checked, onCheckedChange = onChange)
     }
 }
+
+private const val RECOMMENDED_MODEL_PAGE = "https://huggingface.co/litert-community/Gemma3-1B-IT"
