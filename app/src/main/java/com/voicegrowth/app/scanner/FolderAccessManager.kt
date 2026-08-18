@@ -66,7 +66,7 @@ object FolderAccessManager {
                 audioFiles > 0 -> "Folder access is healthy. Found $audioFiles audio file(s), including subfolders."
                 else -> "Folder access is healthy, but no supported audio files are currently visible."
             }
-            FolderAccessStatus(persisted, persisted, name, audioFiles, directories, message)
+            FolderAccessStatus(true, persisted, name, audioFiles, directories, message)
         } catch (error: SecurityException) {
             FolderAccessStatus(false, persisted, fallbackName(uri), 0, 0, "Folder permission was lost. Re-select the call-recording folder.")
         } catch (error: Exception) {
