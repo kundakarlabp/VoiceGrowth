@@ -25,6 +25,10 @@ object CaptureNotificationManager {
     const val READY_NOTIFICATION_ID = 1999
 
     fun showReady(context: Context, statusText: String? = null) {
+        if (RecordingStateStore.isRecording(context)) {
+            hideReady(context)
+            return
+        }
         if (!canPostNotifications(context)) return
 
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
