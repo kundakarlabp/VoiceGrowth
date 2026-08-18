@@ -10,16 +10,16 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.voicegrowth.app.VoiceGrowthApplication
-import com.voicegrowth.app.data.model.RecordingSource
 import com.voicegrowth.app.receiver.CaptureActionReceiver
 import com.voicegrowth.app.ui.MainActivity
+import com.voicegrowth.app.ui.QuickCaptureActivity
 
 /**
  * Owns the always-available VoiceGrowth capture control in the notification shade/lock screen.
  *
  * The ready notification is a normal ongoing notification, not a long-running foreground service.
- * When the user taps Record, PendingIntent.getForegroundService() starts the microphone service as
- * a direct notification interaction, which is a user-initiated foreground-service launch path.
+ * Record opens a tiny show-when-locked activity, which creates the microphone foreground service
+ * from a user-visible context on Android 14+.
  */
 object CaptureNotificationManager {
     const val READY_NOTIFICATION_ID = 1999
@@ -30,12 +30,11 @@ object CaptureNotificationManager {
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         val primaryIntent = if (hasMic) {
-            PendingIntent.getForegroundService(
+            PendingIntent.getActivity(
                 context,
                 REQUEST_START_RECORDING,
-                Intent(context, AudioRecordingService::class.java)
-                    .setAction(AudioRecordingService.ACTION_START_RECORDING)
-                    .putExtra(AudioRecordingService.EXTRA_SOURCE, RecordingSource.VOICE_REFLECTION.name),
+                Intent(context, QuickCaptureActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         } else {
