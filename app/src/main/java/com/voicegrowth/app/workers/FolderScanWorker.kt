@@ -21,11 +21,17 @@ class FolderScanWorker(
         val repository = app.container.recordingRepository
         val settings = repository.settingsFlow.first()
         val forced = inputData.getBoolean(INPUT_FORCE_SCAN, false)
-        if (!settings.autoProcessing && !forced) return Result.success()
+        if (!settings.autoProcessing && !forced) {
+            CaptureNotificationManager.showReady(applicationContext)
+            return Result.success()
+        }
 
         val folder = settings.selectedFolderUri?.takeIf { it.isNotBlank() }
         if (folder == null) {
-            if (forced) CaptureNotificationManager.showReady(applicationContext, "Choose the call-recording folder in VoiceGrowth Settings")
+            CaptureNotificationManager.showReady(
+                applicationContext,
+                if (forced) "Choose the call-recording folder in VoiceGrowth Settings" else null
+            )
             return Result.success()
         }
 
@@ -33,12 +39,14 @@ class FolderScanWorker(
             val newCount = FolderScanner(applicationContext, repository)
                 .scanFolder(Uri.parse(folder), settings)
             if (newCount > 0) app.enqueueAudioProcessing()
-            if (forced) {
-                CaptureNotificationManager.showReady(
-                    applicationContext,
+            CaptureNotificationManager.showReady(
+                applicationContext,
+                if (forced) {
                     if (newCount > 0) "$newCount new recording(s) queued" else "Folder checked · no new completed recordings"
-                )
-            }
+                } else {
+                    null
+                }
+            )
             Result.success()
         } catch (e: CancellationException) {
             throw e
@@ -53,6 +61,7 @@ class FolderScanWorker(
                 )
                 Result.success()
             } else {
+                CaptureNotificationManager.showReady(applicationContext)
                 Result.retry()
             }
         }
