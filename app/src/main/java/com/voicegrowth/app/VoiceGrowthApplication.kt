@@ -64,9 +64,9 @@ class VoiceGrowthApplication : Application() {
         )
     }
 
-    fun enqueueFolderScanNow() {
+    fun enqueueFolderScanNow(force: Boolean = true) {
         val request = OneTimeWorkRequestBuilder<FolderScanWorker>()
-            .setInputData(workDataOf(FolderScanWorker.INPUT_FORCE_SCAN to true))
+            .setInputData(workDataOf(FolderScanWorker.INPUT_FORCE_SCAN to force))
             .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
