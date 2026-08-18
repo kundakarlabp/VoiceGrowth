@@ -14,6 +14,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.voicegrowth.app.di.AppContainer
 import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.service.RecordingStateStore
@@ -65,6 +66,7 @@ class VoiceGrowthApplication : Application() {
 
     fun enqueueFolderScanNow() {
         val request = OneTimeWorkRequestBuilder<FolderScanWorker>()
+            .setInputData(workDataOf(FolderScanWorker.INPUT_FORCE_SCAN to true))
             .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
