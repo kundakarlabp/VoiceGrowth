@@ -1,6 +1,7 @@
 package com.voicegrowth.app
 
 import android.app.Application
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -14,6 +15,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.voicegrowth.app.di.AppContainer
+import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.workers.AudioProcessingWorker
 import com.voicegrowth.app.workers.CleanupWorker
@@ -33,6 +35,7 @@ class VoiceGrowthApplication : Application() {
         RecordingStateStore.setRecording(this, false)
         createNotificationChannels()
         schedulePeriodicWork(this)
+        CaptureNotificationManager.showReady(this)
     }
 
     fun enqueueAudioProcessing() {
@@ -60,6 +63,18 @@ class VoiceGrowthApplication : Application() {
         )
     }
 
+    fun enqueueFolderScanNow() {
+        val request = OneTimeWorkRequestBuilder<FolderScanWorker>()
+            .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            FolderScanWorker.ONE_TIME_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -71,11 +86,21 @@ class VoiceGrowthApplication : Application() {
             NotificationChannel(CHANNEL_RECORDING_ID, getString(R.string.channel_recording_name), NotificationManager.IMPORTANCE_DEFAULT)
                 .apply { description = getString(R.string.channel_recording_desc) }
         )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_CAPTURE_ID, getString(R.string.channel_capture_name), NotificationManager.IMPORTANCE_DEFAULT)
+                .apply {
+                    description = getString(R.string.channel_capture_desc)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    setShowBadge(false)
+                }
+        )
     }
 
     companion object {
         const val CHANNEL_PROCESSING_ID = "voicegrowth_processing_channel"
         const val CHANNEL_RECORDING_ID = "voicegrowth_recording_channel"
+        // New ID intentionally avoids inheriting a previously muted recording channel.
+        const val CHANNEL_CAPTURE_ID = "voicegrowth_capture_controls_v2"
 
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
