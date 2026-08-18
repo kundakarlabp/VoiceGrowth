@@ -1,6 +1,7 @@
 package com.voicegrowth.app.service
 
 import android.Manifest
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -94,7 +95,14 @@ object CaptureNotificationManager {
         val runtimeGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
-        return runtimeGranted && NotificationManagerCompat.from(context).areNotificationsEnabled()
+        if (!runtimeGranted || !NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = manager.getNotificationChannel(VoiceGrowthApplication.CHANNEL_CAPTURE_ID)
+            if (channel != null && channel.importance == NotificationManager.IMPORTANCE_NONE) return false
+        }
+        return true
     }
 
     fun openAppPendingIntent(context: Context): PendingIntent = PendingIntent.getActivity(
