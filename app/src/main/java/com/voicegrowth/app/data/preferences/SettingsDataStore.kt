@@ -28,6 +28,8 @@ class SettingsDataStore(private val context: Context) {
         val DELETE_LOCAL_AUDIO_DAYS = intPreferencesKey("delete_local_audio_days")
         val TRANSCRIPTION_LANGUAGE = stringPreferencesKey("transcription_language")
         val DRIVE_FOLDER_HIERARCHY = stringPreferencesKey("drive_folder_hierarchy")
+        val DRIVE_TREE_URI = stringPreferencesKey("drive_tree_uri")
+        val DRIVE_TREE_DISPLAY_NAME = stringPreferencesKey("drive_tree_display_name")
         val CLINICAL_PRIVACY_MODE = booleanPreferencesKey("clinical_privacy_mode")
         val AI_ENABLED = booleanPreferencesKey("ai_enabled")
         val AI_MODEL_PATH = stringPreferencesKey("ai_model_path")
@@ -52,6 +54,8 @@ class SettingsDataStore(private val context: Context) {
                 deleteLocalAudioDays = preferences[PreferencesKeys.DELETE_LOCAL_AUDIO_DAYS] ?: 7,
                 transcriptionLanguage = preferences[PreferencesKeys.TRANSCRIPTION_LANGUAGE] ?: "auto",
                 driveFolderHierarchy = preferences[PreferencesKeys.DRIVE_FOLDER_HIERARCHY] ?: "VoiceGrowth/Transcripts",
+                driveTreeUri = preferences[PreferencesKeys.DRIVE_TREE_URI],
+                driveTreeDisplayName = preferences[PreferencesKeys.DRIVE_TREE_DISPLAY_NAME],
                 clinicalPrivacyMode = preferences[PreferencesKeys.CLINICAL_PRIVACY_MODE] ?: true,
                 aiEnabled = preferences[PreferencesKeys.AI_ENABLED] ?: false,
                 aiModelPath = preferences[PreferencesKeys.AI_MODEL_PATH],
@@ -89,6 +93,13 @@ class SettingsDataStore(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[PreferencesKeys.SELECTED_FOLDER_URI] = uri
             prefs[PreferencesKeys.SELECTED_FOLDER_NAME] = name
+        }
+    }
+
+    suspend fun setDriveTree(uri: String?, displayName: String?) {
+        context.dataStore.edit { prefs ->
+            if (uri.isNullOrBlank()) prefs.remove(PreferencesKeys.DRIVE_TREE_URI) else prefs[PreferencesKeys.DRIVE_TREE_URI] = uri
+            if (displayName.isNullOrBlank()) prefs.remove(PreferencesKeys.DRIVE_TREE_DISPLAY_NAME) else prefs[PreferencesKeys.DRIVE_TREE_DISPLAY_NAME] = displayName
         }
     }
 
