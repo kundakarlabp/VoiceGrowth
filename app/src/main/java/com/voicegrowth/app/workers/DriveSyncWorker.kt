@@ -11,6 +11,8 @@ import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.sync.DriveAuthorizationAttempt
 import com.voicegrowth.app.sync.DriveSyncService
+import com.voicegrowth.app.sync.DriveTreeSyncService
+import com.voicegrowth.app.sync.DriveUploadResult
 import com.voicegrowth.app.sync.GoogleAuthManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -23,6 +25,7 @@ class DriveSyncWorker(
 ) : CoroutineWorker(appContext, params) {
 
     private val drive = DriveSyncService(appContext)
+    private val driveTree = DriveTreeSyncService(appContext)
 
     override suspend fun doWork(): Result {
         val app = applicationContext as VoiceGrowthApplication
@@ -49,31 +52,75 @@ class DriveSyncWorker(
         val pending = candidates.filter(::needsUpload)
         if (pending.isEmpty()) return Result.success()
 
-        val accessToken = try {
-            when (val attempt = GoogleAuthManager.authorize(applicationContext)) {
-                is DriveAuthorizationAttempt.Authorized -> attempt.authorization.accessToken
-                is DriveAuthorizationAttempt.NeedsResolution -> {
-                    pending.forEach {
-                        repository.updateStatus(
-                            it.id,
-                            ProcessingStatus.WAITING_FOR_SYNC,
-                            "Google Drive permission needs confirmation. Open Settings → Google Drive → Connect."
-                        )
+        val treeUri = settings.driveTreeUri?.takeIf(String::isNotBlank)?.let(Uri::parse)
+        if (treeUri != null) {
+            val status = driveTree.inspect(treeUri)
+            if (!status.usable) {
+                pending.forEach {
+                    repository.updateStatus(
+                        it.id,
+                        ProcessingStatus.WAITING_FOR_SYNC,
+                        "Drive folder unavailable: ${status.message}"
+                    )
+                }
+                return Result.success()
+            }
+        }
+
+        val accessToken = if (treeUri == null) {
+            try {
+                when (val attempt = GoogleAuthManager.authorize(applicationContext)) {
+                    is DriveAuthorizationAttempt.Authorized -> attempt.authorization.accessToken
+                    is DriveAuthorizationAttempt.NeedsResolution -> {
+                        pending.forEach {
+                            repository.updateStatus(
+                                it.id,
+                                ProcessingStatus.WAITING_FOR_SYNC,
+                                "Choose a Google Drive folder in Settings (recommended), or confirm optional OAuth access."
+                            )
+                        }
+                        return Result.success()
                     }
-                    return Result.success()
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                val message = GoogleAuthManager.userFacingError(applicationContext, error).take(500)
+                pending.forEach { repository.updateStatus(it.id, ProcessingStatus.WAITING_FOR_SYNC, message) }
+                return if ((error as? com.google.android.gms.common.api.ApiException)?.statusCode == 7) {
+                    Result.retry()
+                } else {
+                    Result.success()
                 }
             }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            val message = GoogleAuthManager.userFacingError(applicationContext, error).take(500)
-            pending.forEach { repository.updateStatus(it.id, ProcessingStatus.WAITING_FOR_SYNC, message) }
-            // Authorization/configuration is not an individual-file failure and must not consume
-            // the recording retry budget. Transient Google-services/network failures can retry.
-            return if ((error as? com.google.android.gms.common.api.ApiException)?.statusCode == 7) {
-                Result.retry()
+        } else {
+            null
+        }
+
+        suspend fun upload(
+            localFile: File,
+            mimeType: String,
+            recordedAtMillis: Long,
+            hierarchy: String,
+            description: String
+        ): DriveUploadResult {
+            return if (treeUri != null) {
+                driveTree.uploadFile(
+                    treeUri = treeUri,
+                    localFile = localFile,
+                    mimeType = mimeType,
+                    recordedAtMillis = recordedAtMillis,
+                    baseHierarchy = hierarchy
+                ).getOrThrow()
             } else {
-                Result.success()
+                drive.uploadFile(
+                    accessToken = requireNotNull(accessToken),
+                    localFile = localFile,
+                    mimeType = mimeType,
+                    recordedAtMillis = recordedAtMillis,
+                    baseHierarchy = hierarchy,
+                    description = description
+                ).getOrThrow()
             }
         }
 
@@ -86,28 +133,26 @@ class DriveSyncWorker(
                     val transcript = current.transcriptPath?.let(::File)
                         ?: error("Transcript path is missing")
                     require(transcript.exists() && transcript.length() > 0L) { "Transcript file is missing" }
-                    val result = drive.uploadFile(
-                        accessToken = accessToken,
+                    val result = upload(
                         localFile = transcript,
                         mimeType = "text/markdown",
                         recordedAtMillis = current.recordedAt,
-                        baseHierarchy = settings.driveFolderHierarchy,
+                        hierarchy = settings.driveFolderHierarchy,
                         description = "VoiceGrowth de-identified transcript; manual privacy review recommended"
-                    ).getOrThrow()
+                    )
                     repository.updateTranscriptUpload(current.id, result.fileId, result.webViewLink)
                     current = repository.getById(current.id) ?: current
                 }
 
                 if (settings.uploadAudio && current.driveAudioFileId.isNullOrBlank()) {
                     tempAudio = copyAudioToCache(current)
-                    val audioResult = drive.uploadFile(
-                        accessToken = accessToken,
+                    val audioResult = upload(
                         localFile = tempAudio,
                         mimeType = mimeTypeFor(current.fileName),
                         recordedAtMillis = current.recordedAt,
-                        baseHierarchy = audioHierarchy(settings),
+                        hierarchy = audioHierarchy(settings),
                         description = "VoiceGrowth original audio. May contain identifiable clinical information."
-                    ).getOrThrow()
+                    )
                     repository.updateAudioUpload(current.id, audioResult.fileId)
                 }
 
@@ -120,7 +165,7 @@ class DriveSyncWorker(
                         repository.updateStatus(
                             candidate.id,
                             ProcessingStatus.WAITING_FOR_SYNC,
-                            "Google Drive authorization expired. VoiceGrowth will obtain a fresh token; reconnect in Settings if this persists."
+                            "Google Drive authorization expired. Reconnect OAuth or use the recommended Drive folder method in Settings."
                         )
                         retryNeeded = true
                     }
@@ -128,12 +173,23 @@ class DriveSyncWorker(
                         repository.updateStatus(
                             candidate.id,
                             ProcessingStatus.WAITING_FOR_SYNC,
-                            "Google Drive denied the request. Confirm the Drive API is enabled and reconnect VoiceGrowth in Settings."
+                            "Google Drive denied the OAuth request. Use the recommended Drive folder method or confirm Drive API configuration."
                         )
                     }
-                    else -> retryNeeded = recordFileFailure(repository = repository, candidate = candidate, message = e.message ?: "Drive HTTP ${e.statusCode}") || retryNeeded
+                    else -> retryNeeded = recordFileFailure(repository, candidate, e.message ?: "Drive HTTP ${e.statusCode}") || retryNeeded
                 }
             } catch (e: Exception) {
+                if (treeUri != null) {
+                    val status = driveTree.inspect(treeUri)
+                    if (!status.usable) {
+                        repository.updateStatus(
+                            candidate.id,
+                            ProcessingStatus.WAITING_FOR_SYNC,
+                            "Drive folder access needs attention: ${status.message}"
+                        )
+                        continue
+                    }
+                }
                 retryNeeded = recordFileFailure(
                     repository = repository,
                     candidate = candidate,
