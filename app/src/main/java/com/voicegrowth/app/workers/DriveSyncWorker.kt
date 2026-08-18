@@ -4,10 +4,12 @@ import android.content.Context
 import android.net.Uri
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.voicegrowth.app.VoiceGrowthApplication
 import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.preferences.AppSettings
+import com.voicegrowth.app.sync.DriveAuthorizationAttempt
 import com.voicegrowth.app.sync.DriveSyncService
 import com.voicegrowth.app.sync.GoogleAuthManager
 import kotlinx.coroutines.CancellationException
@@ -40,7 +42,6 @@ class DriveSyncWorker(
             (settings.uploadTranscript && item.driveFileId.isNullOrBlank()) ||
                 (settings.uploadAudio && item.driveAudioFileId.isNullOrBlank())
 
-        // Reconcile stale local states without touching rows that still need an upload.
         candidates.filterNot(::needsUpload)
             .filter { it.status != ProcessingStatus.UPLOADED }
             .forEach { repository.updateStatusResetRetry(it.id, ProcessingStatus.UPLOADED, null) }
@@ -48,12 +49,32 @@ class DriveSyncWorker(
         val pending = candidates.filter(::needsUpload)
         if (pending.isEmpty()) return Result.success()
 
-        val account = GoogleAuthManager.getSignedInAccount(applicationContext)
-        if (account == null) {
-            pending.forEach {
-                repository.updateStatus(it.id, ProcessingStatus.WAITING_FOR_SYNC, "Connect Google Drive to sync")
+        val accessToken = try {
+            when (val attempt = GoogleAuthManager.authorize(applicationContext)) {
+                is DriveAuthorizationAttempt.Authorized -> attempt.authorization.accessToken
+                is DriveAuthorizationAttempt.NeedsResolution -> {
+                    pending.forEach {
+                        repository.updateStatus(
+                            it.id,
+                            ProcessingStatus.WAITING_FOR_SYNC,
+                            "Google Drive permission needs confirmation. Open Settings → Google Drive → Connect."
+                        )
+                    }
+                    return Result.success()
+                }
             }
-            return Result.success()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            val message = GoogleAuthManager.userFacingError(applicationContext, error).take(500)
+            pending.forEach { repository.updateStatus(it.id, ProcessingStatus.WAITING_FOR_SYNC, message) }
+            // Authorization/configuration is not an individual-file failure and must not consume
+            // the recording retry budget. Transient Google-services/network failures can retry.
+            return if ((error as? com.google.android.gms.common.api.ApiException)?.statusCode == 7) {
+                Result.retry()
+            } else {
+                Result.success()
+            }
         }
 
         var retryNeeded = false
@@ -66,7 +87,7 @@ class DriveSyncWorker(
                         ?: error("Transcript path is missing")
                     require(transcript.exists() && transcript.length() > 0L) { "Transcript file is missing" }
                     val result = drive.uploadFile(
-                        account = account,
+                        accessToken = accessToken,
                         localFile = transcript,
                         mimeType = "text/markdown",
                         recordedAtMillis = current.recordedAt,
@@ -80,7 +101,7 @@ class DriveSyncWorker(
                 if (settings.uploadAudio && current.driveAudioFileId.isNullOrBlank()) {
                     tempAudio = copyAudioToCache(current)
                     val audioResult = drive.uploadFile(
-                        account = account,
+                        accessToken = accessToken,
                         localFile = tempAudio,
                         mimeType = mimeTypeFor(current.fileName),
                         recordedAtMillis = current.recordedAt,
@@ -93,20 +114,52 @@ class DriveSyncWorker(
                 repository.updateStatusResetRetry(current.id, ProcessingStatus.UPLOADED, null)
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                val message = e.message?.take(500) ?: e::class.java.simpleName
-                val attemptsAfterThisFailure = candidate.retryCount + 1
-                if (attemptsAfterThisFailure >= MAX_RETRIES) {
-                    repository.recordRetry(candidate.id, ProcessingStatus.FAILED, "Drive sync: $message")
-                } else {
-                    repository.recordRetry(candidate.id, ProcessingStatus.WAITING_FOR_SYNC, "Drive sync: $message")
-                    retryNeeded = true
+            } catch (e: GoogleJsonResponseException) {
+                when (e.statusCode) {
+                    401 -> {
+                        repository.updateStatus(
+                            candidate.id,
+                            ProcessingStatus.WAITING_FOR_SYNC,
+                            "Google Drive authorization expired. VoiceGrowth will obtain a fresh token; reconnect in Settings if this persists."
+                        )
+                        retryNeeded = true
+                    }
+                    403 -> {
+                        repository.updateStatus(
+                            candidate.id,
+                            ProcessingStatus.WAITING_FOR_SYNC,
+                            "Google Drive denied the request. Confirm the Drive API is enabled and reconnect VoiceGrowth in Settings."
+                        )
+                    }
+                    else -> retryNeeded = recordFileFailure(repository = repository, candidate = candidate, message = e.message ?: "Drive HTTP ${e.statusCode}") || retryNeeded
                 }
+            } catch (e: Exception) {
+                retryNeeded = recordFileFailure(
+                    repository = repository,
+                    candidate = candidate,
+                    message = e.message ?: e::class.java.simpleName
+                ) || retryNeeded
             } finally {
                 tempAudio?.delete()
             }
         }
         return if (retryNeeded) Result.retry() else Result.success()
+    }
+
+    private suspend fun recordFileFailure(
+        repository: com.voicegrowth.app.data.repository.RecordingRepository,
+        candidate: RecordingEntity,
+        message: String
+    ): Boolean {
+        val attemptsAfterThisFailure = candidate.retryCount + 1
+        val clean = message.take(500)
+        return if (attemptsAfterThisFailure >= MAX_RETRIES) {
+            repository.recordRetry(candidate.id, ProcessingStatus.FAILED, "Drive sync: $clean")
+            false
+        } else {
+            repository.recordRetry(candidate.id, ProcessingStatus.WAITING_FOR_SYNC, "Drive sync: $clean")
+            true
+        }
     }
 
     private fun audioHierarchy(settings: AppSettings): String {
