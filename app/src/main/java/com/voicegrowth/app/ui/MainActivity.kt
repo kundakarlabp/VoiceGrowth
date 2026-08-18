@@ -16,7 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.voicegrowth.app.VoiceGrowthApplication
-import com.voicegrowth.app.service.RecordingMonitorService
+import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.ui.screens.home.HomeScreen
 import com.voicegrowth.app.ui.screens.home.HomeViewModel
 import com.voicegrowth.app.ui.screens.settings.SettingsScreen
@@ -28,8 +28,7 @@ class MainActivity : ComponentActivity() {
     private val settingsViewModel: SettingsViewModel by viewModels()
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        startMonitorService()
-        if (hasRecordAudioPermission()) (application as VoiceGrowthApplication).enqueueAudioProcessing()
+        afterPermissionCheck()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,6 +45,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        CaptureNotificationManager.showReady(this)
+        settingsViewModel.refreshRuntimeDiagnostics()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -65,7 +70,15 @@ class MainActivity : ComponentActivity() {
                 add(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-        if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray()) else startMonitorService()
+        if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray()) else afterPermissionCheck()
+    }
+
+    private fun afterPermissionCheck() {
+        val app = application as VoiceGrowthApplication
+        CaptureNotificationManager.showReady(this)
+        if (hasRecordAudioPermission()) app.enqueueAudioProcessing()
+        app.enqueueFolderScanNow(force = false)
+        settingsViewModel.refreshRuntimeDiagnostics()
     }
 
     private fun handleIncomingAudio(incoming: Intent?) {
@@ -86,11 +99,6 @@ class MainActivity : ComponentActivity() {
 
     private fun hasRecordAudioPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-
-    private fun startMonitorService() {
-        val intent = Intent(this, RecordingMonitorService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
-    }
 
     companion object {
         const val EXTRA_REQUEST_MIC_PERMISSION = "request_mic_permission"

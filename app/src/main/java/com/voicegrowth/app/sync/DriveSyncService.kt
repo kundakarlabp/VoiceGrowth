@@ -1,9 +1,7 @@
 package com.voicegrowth.app.sync
 
 import android.content.Context
-import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.api.client.extensions.android.http.AndroidHttp
-import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.client.http.FileContent
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
@@ -13,6 +11,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
 
 data class DriveUploadResult(
     val fileId: String,
@@ -25,7 +24,7 @@ class DriveSyncService(private val context: Context) {
     private val monthFormat = SimpleDateFormat("MM-MMM", Locale.US)
 
     suspend fun uploadFile(
-        account: GoogleSignInAccount,
+        accessToken: String,
         localFile: java.io.File,
         mimeType: String,
         recordedAtMillis: Long,
@@ -33,8 +32,9 @@ class DriveSyncService(private val context: Context) {
         description: String = "VoiceGrowth file"
     ): Result<DriveUploadResult> = withContext(Dispatchers.IO) {
         runCatching {
+            require(accessToken.isNotBlank()) { "Google Drive access token is missing" }
             require(localFile.exists() && localFile.length() > 0) { "Local upload file is missing or empty" }
-            val driveService = buildDriveService(account)
+            val driveService = buildDriveService(accessToken)
             val year = yearFormat.format(Date(recordedAtMillis))
             val month = monthFormat.format(Date(recordedAtMillis))
             val segments = sanitizeHierarchy(baseHierarchy) + listOf(year, month)
@@ -56,18 +56,15 @@ class DriveSyncService(private val context: Context) {
         }
     }
 
-    private fun buildDriveService(account: GoogleSignInAccount): Drive {
-        val selectedAccount = account.account ?: error("Google account is unavailable")
-        val credential = GoogleAccountCredential.usingOAuth2(
-            context,
-            listOf(DRIVE_FILE_SCOPE)
-        ).setSelectedAccount(selectedAccount)
-
+    private fun buildDriveService(accessToken: String): Drive {
         return Drive.Builder(
             AndroidHttp.newCompatibleTransport(),
-            GsonFactory.getDefaultInstance(),
-            credential
-        ).setApplicationName("VoiceGrowth").build()
+            GsonFactory.getDefaultInstance()
+        ) { request ->
+            request.headers.authorization = "Bearer $accessToken"
+            request.connectTimeout = CONNECT_TIMEOUT_MS
+            request.readTimeout = READ_TIMEOUT_MS
+        }.setApplicationName("VoiceGrowth").build()
     }
 
     private fun sanitizeHierarchy(path: String): List<String> {
@@ -101,5 +98,7 @@ class DriveSyncService(private val context: Context) {
 
     companion object {
         const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+        private const val CONNECT_TIMEOUT_MS = 20_000
+        private const val READ_TIMEOUT_MS = 90_000
     }
 }
