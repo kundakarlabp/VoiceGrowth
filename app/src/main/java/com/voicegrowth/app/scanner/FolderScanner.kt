@@ -16,21 +16,29 @@ class FolderScanner(
     private val repository: RecordingRepository
 ) {
     suspend fun scanFolder(treeUri: Uri, settings: AppSettings): Int = withContext(Dispatchers.IO) {
-        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext 0
+        val root = DocumentFile.fromTreeUri(context, treeUri)
+            ?: error("Android could not open the selected call-recording folder")
+        require(root.exists() && root.isDirectory && root.canRead()) {
+            "Selected call-recording folder is no longer readable. Re-select it in Settings."
+        }
+        require(FolderAccessManager.hasPersistedReadPermission(context, treeUri)) {
+            "Persistent folder access was lost. Re-select the call-recording folder in Settings."
+        }
+
         val now = System.currentTimeMillis()
         var newRecordings = 0
+        var visitedNodes = 0
+        val visitedDirectories = HashSet<String>()
 
-        for (doc in root.listFiles()) {
-            if (!doc.isFile || !isAudioFile(doc.name.orEmpty())) continue
-
+        suspend fun processFile(doc: DocumentFile) {
             val uriString = doc.uri.toString()
-            if (repository.getByUri(uriString) != null) continue
+            if (repository.getByUri(uriString) != null) return
 
             val lastModified = doc.lastModified()
             // Avoid picking up an OEM file while the call recorder is still writing it.
-            if (lastModified > 0 && now - lastModified < FILE_STABILITY_WINDOW_MS) continue
+            if (lastModified > 0 && now - lastModified < FILE_STABILITY_WINDOW_MS) return
             val size = doc.length()
-            if (size <= 0L) continue
+            if (size <= 0L) return
 
             val metadata = AudioMetadataExtractor.extract(
                 context = context,
@@ -38,7 +46,6 @@ class FolderScanner(
                 fallbackRecordedAt = lastModified,
                 fallbackSize = size
             )
-
             val status = if (
                 settings.onlyProcessOver30Sec && metadata.durationSeconds in 1 until MIN_DURATION_SECONDS
             ) {
@@ -61,17 +68,27 @@ class FolderScanner(
             )
             if (inserted > 0 && status == ProcessingStatus.PENDING) newRecordings++
         }
-        newRecordings
-    }
 
-    private fun isAudioFile(name: String): Boolean {
-        val lower = name.lowercase()
-        return SUPPORTED_EXTENSIONS.any(lower::endsWith)
+        suspend fun walk(directory: DocumentFile, depth: Int) {
+            if (depth > MAX_DEPTH || visitedNodes >= MAX_NODES) return
+            if (!visitedDirectories.add(directory.uri.toString())) return
+            for (doc in directory.listFiles()) {
+                if (visitedNodes++ >= MAX_NODES) break
+                when {
+                    doc.isDirectory -> walk(doc, depth + 1)
+                    doc.isFile && FolderAccessManager.isSupportedAudio(doc.name.orEmpty()) -> processFile(doc)
+                }
+            }
+        }
+
+        walk(root, 0)
+        newRecordings
     }
 
     companion object {
         private const val MIN_DURATION_SECONDS = 30L
         private const val FILE_STABILITY_WINDOW_MS = 10_000L
-        private val SUPPORTED_EXTENSIONS = listOf(".m4a", ".mp3", ".wav", ".aac", ".3gp", ".amr", ".ogg", ".opus")
+        private const val MAX_DEPTH = 6
+        private const val MAX_NODES = 4_000
     }
 }
