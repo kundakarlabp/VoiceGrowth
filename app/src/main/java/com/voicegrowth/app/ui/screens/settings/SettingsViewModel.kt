@@ -117,11 +117,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refreshFolderStatus() = viewModelScope.launch {
-        val folder = store.settingsFlow.first().selectedFolderUri
-        _folderStatus.value = if (folder.isNullOrBlank()) {
-            null
-        } else {
-            withContext(Dispatchers.IO) { FolderAccessManager.inspect(app, Uri.parse(folder)) }
+        val current = store.settingsFlow.first()
+        val folder = current.selectedFolderUri
+        if (folder.isNullOrBlank()) {
+            _folderStatus.value = null
+            return@launch
+        }
+
+        val status = withContext(Dispatchers.IO) { FolderAccessManager.inspect(app, Uri.parse(folder)) }
+        _folderStatus.value = status
+        if (
+            status.accessible &&
+            status.persistedReadPermission &&
+            status.displayName.isNotBlank() &&
+            status.displayName != current.selectedFolderDisplayName
+        ) {
+            store.setSelectedFolder(folder, status.displayName)
         }
     }
 
