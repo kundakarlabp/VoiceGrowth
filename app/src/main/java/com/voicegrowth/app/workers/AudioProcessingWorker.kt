@@ -1,13 +1,10 @@
 package com.voicegrowth.app.workers
 
-import android.Manifest
 import android.app.Notification
 import android.content.Context
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
@@ -18,22 +15,22 @@ import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.engine.ai.OnDeviceAiEngine
 import com.voicegrowth.app.engine.format.TranscriptMarkdownBuilder
 import com.voicegrowth.app.engine.privacy.ClinicalDeidentifier
-import com.voicegrowth.app.engine.transcription.LocalMedicalSpeechEngine
-import com.voicegrowth.app.engine.transcription.SpeechRecognitionPermissionException
+import com.voicegrowth.app.engine.transcription.HybridTranscriptionEngine
+import com.voicegrowth.app.engine.transcription.OfflineAsrModelRequiredException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
 
 /**
- * Local pipeline: audio -> on-device ASR -> de-identification -> optional LiteRT-LM synthesis -> Markdown.
- * Network work is deliberately delegated to DriveSyncWorker.
+ * Local pipeline: audio -> true offline file ASR (with Android fallback) -> de-identification ->
+ * optional LiteRT-LM synthesis -> Markdown. Network work is delegated to DriveSyncWorker.
  */
 class AudioProcessingWorker(
     appContext: Context,
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
-    private val transcriptionEngine = LocalMedicalSpeechEngine()
+    private val transcriptionEngine = HybridTranscriptionEngine()
     private val aiEngine = OnDeviceAiEngine()
 
     override suspend fun doWork(): Result {
@@ -44,13 +41,6 @@ class AudioProcessingWorker(
 
         val pending = repository.getPendingRecordings()
         if (pending.isEmpty()) return Result.success()
-
-        if (!hasRecordAudioPermission()) {
-            pending.forEach {
-                repository.updateStatus(it.id, ProcessingStatus.PENDING, MICROPHONE_PERMISSION_MESSAGE)
-            }
-            return Result.success()
-        }
 
         setForeground(createForegroundInfo("Processing 0/${pending.size}"))
         var retryNeeded = false
@@ -73,11 +63,6 @@ class AudioProcessingWorker(
         val repository = app.container.recordingRepository
         var tempAudio: File? = null
         return try {
-            if (!hasRecordAudioPermission()) {
-                repository.updateStatus(recording.id, ProcessingStatus.PENDING, MICROPHONE_PERMISSION_MESSAGE)
-                return false
-            }
-
             if (settings.onlyProcessOver30Sec && recording.durationSeconds in 1 until MIN_DURATION_SECONDS) {
                 repository.updateStatusResetRetry(recording.id, ProcessingStatus.SKIPPED_TOO_SHORT)
                 return false
@@ -95,8 +80,6 @@ class AudioProcessingWorker(
                 return false
             }
 
-            // The transcript follows the user's privacy setting. The AI path is stricter: it always
-            // receives a de-identified copy even if the user has disabled transcript redaction.
             val transcriptPrivacy = ClinicalDeidentifier.process(
                 transcription.transcriptText,
                 settings.clinicalPrivacyMode
@@ -172,16 +155,10 @@ class AudioProcessingWorker(
             false
         } catch (e: CancellationException) {
             throw e
-        } catch (e: SpeechRecognitionPermissionException) {
-            repository.updateStatus(recording.id, ProcessingStatus.PENDING, MICROPHONE_PERMISSION_MESSAGE)
+        } catch (e: OfflineAsrModelRequiredException) {
+            // This is a missing prerequisite, not a bad recording. Do not consume retry budget.
+            repository.updateStatus(recording.id, ProcessingStatus.PENDING, e.message?.take(500))
             false
-        } catch (e: SecurityException) {
-            if (!hasRecordAudioPermission()) {
-                repository.updateStatus(recording.id, ProcessingStatus.PENDING, MICROPHONE_PERMISSION_MESSAGE)
-                false
-            } else {
-                handleFailure(recording, e, app)
-            }
         } catch (e: Exception) {
             handleFailure(recording, e, app)
         } finally {
@@ -205,12 +182,6 @@ class AudioProcessingWorker(
             true
         }
     }
-
-    private fun hasRecordAudioPermission(): Boolean =
-        ContextCompat.checkSelfPermission(
-            applicationContext,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
 
     private fun copyAudioToCache(recording: RecordingEntity): File {
         val ext = recording.fileName.substringAfterLast('.', "m4a")
@@ -254,7 +225,5 @@ class AudioProcessingWorker(
         const val WORK_NAME = "VoiceGrowth_AudioProcessing"
         private const val MIN_DURATION_SECONDS = 30L
         private const val MAX_ITEM_RETRIES = 3
-        private const val MICROPHONE_PERMISSION_MESSAGE =
-            "Microphone permission is required before transcription can continue"
     }
 }
