@@ -210,7 +210,8 @@ object OfflineWhisperModelManager {
     private const val ENCODER_SHA256 = "d24fb083ae3b1041fc24e97971d60e280c9342201fbb67b0ab428a8b4a51a434"
     private const val DECODER_SHA256 = "d2fece8dd42771f1df975c6c0445770d0c292bf7547c2cae04a6c0cc57540925"
 
-    private const val BASE = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/main"
+    private const val MODEL_REVISION = "65176e2deb88badc814a94058666cadccc29b61c"
+    private const val BASE = "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/$MODEL_REVISION"
     private const val ENCODER_URL = "$BASE/$ENCODER_NAME?download=true"
     private const val DECODER_URL = "$BASE/$DECODER_NAME?download=true"
     private const val TOKENS_URL = "$BASE/$TOKENS_NAME?download=true"
