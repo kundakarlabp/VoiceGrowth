@@ -190,9 +190,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 }
             }
             Text(
-                "Speech-to-text uses Android's on-device speech recognizer. LiteRT-LM is used after ASR for private structuring, not as the primary long-audio transcriber.",
+                "Recorded-file speech-to-text uses dedicated local Whisper when installed. Android's on-device SpeechRecognizer remains a compatibility fallback. Gemma/LiteRT-LM runs only after transcription for private structuring.",
                 style = MaterialTheme.typography.bodySmall
             )
+            OfflineAsrSettingsCard()
 
             SectionTitle("On-device AI")
             OutlinedCard(Modifier.fillMaxWidth()) {
