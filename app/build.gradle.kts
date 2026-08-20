@@ -24,10 +24,13 @@ android {
         applicationId = "com.voicegrowth.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.3.2"
+        versionCode = 8
+        versionName = "1.3.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -86,6 +89,7 @@ dependencies {
     implementation(libs.google.http.client.gson)
     implementation(libs.google.api.services.drive)
     implementation(libs.litertlm)
+    implementation("com.github.k2-fsa:sherpa-onnx:v1.13.4")
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }
