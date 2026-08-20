@@ -177,24 +177,37 @@ class HybridTranscriptionEngine : TranscriptionEngine {
         audioFile: File,
         language: String
     ): Result<TranscriptionResult> {
-        if (OfflineWhisperModelManager.status(context).installed) {
+        val modelInstalled = OfflineWhisperModelManager.status(context).installed
+        var whisperFailure: Throwable? = null
+
+        if (modelInstalled) {
             val reliable = whisper.transcribe(context, audioFile, language)
             if (reliable.isSuccess) return reliable
-            val failure = reliable.exceptionOrNull()
-            if (failure is CancellationException) throw failure
+            whisperFailure = reliable.exceptionOrNull()
+            if (whisperFailure is CancellationException) throw whisperFailure
         }
 
         val androidAttempt = android.transcribe(context, audioFile, language)
         if (androidAttempt.isSuccess) return androidAttempt
 
-        val error = androidAttempt.exceptionOrNull()
-        if (error is CancellationException) throw error
-        return Result.failure(
-            OfflineAsrModelRequiredException(
-                "This phone's Android speech recognizer could not transcribe the recorded audio (${error?.message ?: "unknown ASR error"}). " +
-                    "Install the reliable offline Whisper model in Settings → Speech transcription; the recording will stay pending and can be retried."
+        val androidFailure = androidAttempt.exceptionOrNull()
+        if (androidFailure is CancellationException) throw androidFailure
+
+        return if (!modelInstalled) {
+            Result.failure(
+                OfflineAsrModelRequiredException(
+                    "This phone's Android speech recognizer could not transcribe the recorded audio (${androidFailure?.message ?: "unknown ASR error"}). " +
+                        "Install the reliable offline Whisper model in Settings → Speech transcription; the recording will stay pending and can be retried."
+                )
             )
-        )
+        } else {
+            Result.failure(
+                IllegalStateException(
+                    "Offline Whisper failed (${whisperFailure?.message ?: "unknown error"}); Android fallback also failed (${androidFailure?.message ?: "unknown error"}). " +
+                        "Open Settings → Speech transcription, remove/reinstall the offline model, then retry."
+                )
+            )
+        }
     }
 }
 
