@@ -1,10 +1,12 @@
 package com.voicegrowth.medscribe
 
+import android.Manifest
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
@@ -12,6 +14,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -107,7 +110,10 @@ class RecordingService : Service() {
                 status = ItemStatus.RECORDED
             )
             repo.add(item)
-            if (repo.settings().autoTranscribe) ProcessingService.start(this, itemId)
+            if (repo.settings().autoTranscribe) {
+                runCatching { ProcessingService.start(this, itemId) }
+                    .onFailure { repo.update(itemId) { current -> current.copy(errorMessage = "Recording saved; open MedScribe to start transcription") } }
+            }
         } else {
             output?.delete()
             if (!stoppedCleanly) postError("Android could not finalize the recording; the incomplete file was discarded")
@@ -146,7 +152,11 @@ class RecordingService : Service() {
     }
 
     private fun postError(text: String) {
-        runCatching {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        try {
             NotificationManagerCompat.from(this).notify(
                 ERROR_NOTIFICATION_ID,
                 NotificationCompat.Builder(this, MedScribeApp.CHANNEL_STATUS)
@@ -156,6 +166,8 @@ class RecordingService : Service() {
                     .setAutoCancel(true)
                     .build()
             )
+        } catch (_: SecurityException) {
+            // Notification permission can be revoked between the explicit check and notify().
         }
     }
 
@@ -187,7 +199,10 @@ class RecordingService : Service() {
             if (stopped && output != null && itemId != null && output.isFile && output.length() > 0L && duration >= 1L) {
                 val repo = ScribeRepository.get(this)
                 repo.add(ScribeItem(itemId, "Recovered recording", output.absolutePath, startedWall, duration, ItemStatus.RECORDED))
-                if (repo.settings().autoTranscribe) ProcessingService.start(this, itemId)
+                if (repo.settings().autoTranscribe) {
+                    runCatching { ProcessingService.start(this, itemId) }
+                        .onFailure { repo.update(itemId) { current -> current.copy(errorMessage = "Recovered recording saved; reopen MedScribe to transcribe") } }
+                }
             } else {
                 output?.delete()
             }
