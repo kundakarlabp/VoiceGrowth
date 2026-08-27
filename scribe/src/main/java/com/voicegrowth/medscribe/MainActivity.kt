@@ -93,11 +93,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIncomingAudio(intent)
-        setContent {
-            MaterialTheme {
-                MedScribeScreen(viewModel)
-            }
-        }
+        setContent { MaterialTheme { MedScribeScreen(viewModel) } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -110,8 +106,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingAudio(incoming: Intent?) {
         when (incoming?.action) {
             Intent.ACTION_SEND -> {
-                val uri = incoming.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
-                if (uri != null) viewModel.importAudio(listOf(uri))
+                (incoming.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)?.let { viewModel.importAudio(listOf(it)) }
                 incoming.action = null
             }
             Intent.ACTION_SEND_MULTIPLE -> {
@@ -133,16 +128,19 @@ private fun MedScribeScreen(viewModel: ScribeViewModel) {
     var enrollItem by remember { mutableStateOf<ScribeItem?>(null) }
     var showSetup by remember { mutableStateOf(true) }
 
+    val query = state.searchQuery.trim().lowercase()
+    val filtered = if (query.isBlank()) state.items else state.items.filter {
+        it.title.lowercase().contains(query) || it.errorMessage.orEmpty().lowercase().contains(query)
+    }
+
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         val micGranted = result[Manifest.permission.RECORD_AUDIO]
             ?: (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
         if (micGranted) viewModel.startRecording()
     }
-
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         viewModel.importAudio(uris)
     }
-
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -167,7 +165,7 @@ private fun MedScribeScreen(viewModel: ScribeViewModel) {
                     Column {
                         Text("MedScribe Local", fontWeight = FontWeight.Bold)
                         Text(
-                            if (state.modelInstalled) "Offline Whisper ready" else "Install speech model in Setup",
+                            if (state.modelInstalled) "Offline Whisper ready" else "Speech model setup required",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -193,12 +191,12 @@ private fun MedScribeScreen(viewModel: ScribeViewModel) {
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                                 add(Manifest.permission.RECORD_AUDIO)
                             }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            if (
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                             ) add(Manifest.permission.POST_NOTIFICATIONS)
                         }
-                        if (missing.isEmpty()) viewModel.startRecording()
-                        else permissions.launch(missing.toTypedArray())
+                        if (missing.isEmpty()) viewModel.startRecording() else permissions.launch(missing.toTypedArray())
                     },
                     onStop = viewModel::stopRecording,
                     onImport = { audioPicker.launch(arrayOf("audio/*")) }
@@ -206,13 +204,7 @@ private fun MedScribeScreen(viewModel: ScribeViewModel) {
             }
 
             if (showSetup) {
-                item {
-                    SetupCard(
-                        state = state,
-                        viewModel = viewModel,
-                        onPickDrive = { folderPicker.launch(null) }
-                    )
-                }
+                item { SetupCard(state, viewModel) { folderPicker.launch(null) } }
             }
 
             item {
@@ -226,27 +218,8 @@ private fun MedScribeScreen(viewModel: ScribeViewModel) {
                 )
             }
 
-            val filtered = remember(state.items, state.searchQuery) {
-                val q = state.searchQuery.trim().lowercase()
-                if (q.isBlank()) state.items else state.items.filter {
-                    it.title.lowercase().contains(q) || it.errorMessage.orEmpty().lowercase().contains(q)
-                }
-            }
-
             if (filtered.isEmpty()) {
-                item {
-                    Box(
-                        Modifier.fillMaxWidth().height(180.dp).padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.Audiotrack, null, Modifier.size(46.dp))
-                            Spacer(Modifier.height(8.dp))
-                            Text("No recordings yet")
-                            Text("Record a consult/discussion or import existing audio.", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
+                item { EmptyLibrary() }
             } else {
                 items(filtered, key = { it.id }) { item ->
                     RecordingCard(
@@ -288,12 +261,7 @@ private fun MedScribeScreen(viewModel: ScribeViewModel) {
 }
 
 @Composable
-private fun CaptureCard(
-    state: UiState,
-    onRecord: () -> Unit,
-    onStop: () -> Unit,
-    onImport: () -> Unit
-) {
+private fun CaptureCard(state: UiState, onRecord: () -> Unit, onStop: () -> Unit, onImport: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         shape = RoundedCornerShape(20.dp),
@@ -311,18 +279,10 @@ private fun CaptureCard(
                 style = MaterialTheme.typography.bodySmall
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (state.isRecording) {
-                    Button(onClick = onStop, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Stop, null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Stop")
-                    }
-                } else {
-                    Button(onClick = onRecord, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Mic, null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Record")
-                    }
+                Button(onClick = if (state.isRecording) onStop else onRecord, modifier = Modifier.weight(1f)) {
+                    Icon(if (state.isRecording) Icons.Default.Stop else Icons.Default.Mic, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (state.isRecording) "Stop" else "Record")
                 }
                 OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Add, null)
@@ -378,23 +338,23 @@ private fun SetupCard(state: UiState, viewModel: ScribeViewModel, onPickDrive: (
 
             Divider()
             SettingSwitch(
-                title = "Separate speakers",
-                detail = "Offline diarization identifies who spoke when for conversations up to 45 minutes.",
-                checked = state.settings.diarizationEnabled,
-                onChecked = viewModel::updateDiarization
+                "Separate speakers",
+                "Offline diarization identifies who spoke when for conversations up to 45 minutes.",
+                state.settings.diarizationEnabled,
+                viewModel::updateDiarization
             )
             if (!state.diarizationInstalled) {
                 Button(onClick = viewModel::installDiarization) { Text("Install speaker models (~46 MB)") }
             }
             SettingSwitch(
-                title = "Recognize enrolled voices",
-                detail = "Matches diarized speakers to voice profiles stored only inside this app.",
-                checked = state.settings.voiceRecognitionEnabled,
-                onChecked = viewModel::updateVoiceRecognition
+                "Recognize enrolled voices",
+                "Matches diarized speakers to app-private voice profiles.",
+                state.settings.voiceRecognitionEnabled,
+                viewModel::updateVoiceRecognition
             )
             if (state.voiceProfiles.isEmpty()) {
                 Text(
-                    "To recognize your voice: make a clear 10–30 second recording with only you speaking, then tap Enroll voice on that recording.",
+                    "For your voice: record 10–30 seconds with only you speaking, then use Enroll voice on that recording.",
                     style = MaterialTheme.typography.bodySmall
                 )
             } else {
@@ -405,16 +365,14 @@ private fun SetupCard(state: UiState, viewModel: ScribeViewModel, onPickDrive: (
                         TextButton(onClick = { viewModel.deleteVoiceProfile(profile.id) }) { Text("Remove") }
                     }
                 }
-                Text(
-                    "Voice matching is probabilistic; verify speaker labels in important clinical transcripts.",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Text("Speaker matching is probabilistic; verify names in important transcripts.", style = MaterialTheme.typography.bodySmall)
             }
 
             Divider()
             Text("Google Drive", fontWeight = FontWeight.SemiBold)
             Text(
-                state.settings.driveFolderName ?: "No folder linked. Choose a Google Drive folder from Android Files; access is limited to that folder tree.",
+                state.settings.driveFolderName
+                    ?: "No folder linked. Choose a Google Drive folder through Android Files; MedScribe receives access only to that folder tree.",
                 style = MaterialTheme.typography.bodySmall
             )
             OutlinedButton(onClick = onPickDrive) {
@@ -423,16 +381,16 @@ private fun SetupCard(state: UiState, viewModel: ScribeViewModel, onPickDrive: (
                 Text(if (state.settings.driveFolderUri == null) "Select Drive folder" else "Change Drive folder")
             }
             SettingSwitch(
-                title = "Auto-sync transcripts",
-                detail = "Writes Markdown under MedScribe/Transcripts/YYYY/MM-MMM after transcription.",
-                checked = state.settings.autoSync,
-                onChecked = viewModel::updateAutoSync
+                "Auto-sync transcripts",
+                "Writes Markdown under MedScribe/Transcripts/YYYY/MM-MMM.",
+                state.settings.autoSync,
+                viewModel::updateAutoSync
             )
             SettingSwitch(
-                title = "Upload original audio",
-                detail = "Off by default. Raw clinical audio may contain identifiers.",
-                checked = state.settings.uploadAudio,
-                onChecked = viewModel::updateUploadAudio
+                "Upload original audio",
+                "Off by default because raw clinical audio can contain identifiers.",
+                state.settings.uploadAudio,
+                viewModel::updateUploadAudio
             )
         }
     }
@@ -446,6 +404,21 @@ private fun SettingSwitch(title: String, detail: String, checked: Boolean, onChe
             Text(detail, style = MaterialTheme.typography.bodySmall)
         }
         Switch(checked = checked, onCheckedChange = onChecked)
+    }
+}
+
+@Composable
+private fun EmptyLibrary() {
+    Box(
+        Modifier.fillMaxWidth().height(180.dp).padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Audiotrack, null, Modifier.size(46.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("No recordings yet")
+            Text("Record a consult/discussion or import existing audio.", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -522,8 +495,8 @@ private fun TranscriptEditorDialog(
     onCaseLearning: (String) -> Unit
 ) {
     var text by remember(item.id, initialText) { mutableStateOf(initialText) }
-    val renameValues = remember(item.id, item.speakerCount) {
-        MutableList(item.speakerCount) { "" }
+    var speakerNames by remember(item.id, item.speakerCount) {
+        mutableStateOf(List(item.speakerCount) { "" })
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -533,9 +506,7 @@ private fun TranscriptEditorDialog(
             tonalElevation = 4.dp
         ) {
             LazyColumn(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item {
-                    Text(item.title, fontWeight = FontWeight.Bold, fontSize = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
+                item { Text(item.title, fontWeight = FontWeight.Bold, fontSize = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 item {
                     OutlinedTextField(
                         value = text,
@@ -547,22 +518,28 @@ private fun TranscriptEditorDialog(
                 if (item.speakerCount > 0) {
                     item { Text("Manual speaker naming", fontWeight = FontWeight.SemiBold) }
                     items((1..item.speakerCount).toList()) { number ->
-                        var value by remember(item.id, number) { mutableStateOf(renameValues[number - 1]) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
-                                value = value,
-                                onValueChange = { value = it },
+                                value = speakerNames[number - 1],
+                                onValueChange = { value ->
+                                    speakerNames = speakerNames.toMutableList().also { it[number - 1] = value }
+                                },
                                 modifier = Modifier.weight(1f),
-                                label = { Text("Speaker $number name") },
+                                label = { Text("Speaker $number") },
                                 singleLine = true
                             )
-                            TextButton(onClick = {
-                                onRename(number, value)
-                                text = text.replace(
-                                    Regex("\\*\\*Speaker\\s+$number\\*\\*", RegexOption.IGNORE_CASE),
-                                    "**${value.trim()}**"
-                                )
-                            }) { Text("Apply") }
+                            TextButton(
+                                onClick = {
+                                    val name = speakerNames[number - 1].trim()
+                                    if (name.isNotBlank()) {
+                                        onRename(number, name)
+                                        text = text.replace(
+                                            Regex("\\*\\*Speaker\\s+$number\\*\\*", RegexOption.IGNORE_CASE),
+                                            "**$name**"
+                                        )
+                                    }
+                                }
+                            ) { Text("Apply") }
                         }
                     }
                 }
@@ -585,7 +562,7 @@ private fun TranscriptEditorDialog(
                 }
                 item {
                     Text(
-                        "The AI handoff preserves this source transcript and asks the receiving AI to flag uncertain terminology rather than silently rewriting clinical facts.",
+                        "The learning handoff preserves this source transcript and asks the receiving AI to flag uncertain terminology before interpretation.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -603,10 +580,10 @@ private fun VoiceEnrollDialog(item: ScribeItem, onDismiss: () -> Unit, onEnroll:
         title = { Text("Enroll voice profile") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Use this only when the recording contains predominantly one person's clear speech. A dedicated 10–30 second voice sample is best.")
+                Text("Use a recording containing predominantly one person's clear speech. A dedicated 10–30 second sample is best.")
                 Text("Source: ${item.title}", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Speaker name") }, singleLine = true)
-                Text("The stored template is an app-private voice embedding. You can remove it from Setup.", style = MaterialTheme.typography.bodySmall)
+                Text("Only the app-private voice embedding is retained as the profile. You can remove it from Setup.", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = { Button(onClick = { onEnroll(name) }, enabled = name.isNotBlank()) { Text("Enroll") } },
@@ -627,9 +604,9 @@ private fun BusyDialog(message: String, progress: ModelProgress?) {
                     Spacer(Modifier.width(12.dp))
                     Text(message)
                 }
-                if (progress != null) {
-                    LinearProgressIndicator(progress = progress.percent / 100f, modifier = Modifier.fillMaxWidth())
-                    Text("${progress.currentFile} · ${progress.percent}%", style = MaterialTheme.typography.bodySmall)
+                progress?.let {
+                    LinearProgressIndicator(progress = it.percent / 100f, modifier = Modifier.fillMaxWidth())
+                    Text("${it.currentFile} · ${it.percent}%", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -657,7 +634,7 @@ private fun shareText(context: Context, subject: String, text: String) {
         putExtra(Intent.EXTRA_SUBJECT, subject)
         putExtra(Intent.EXTRA_TEXT, text)
     }
-    context.startActivity(Intent.createChooser(intent, subject).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    context.startActivity(Intent.createChooser(intent, subject))
 }
 
 private fun caseLearningPrompt(transcript: String): String = """
