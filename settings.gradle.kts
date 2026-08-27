@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "VoiceGrowth"
 include(":app")
+include(":scribe")

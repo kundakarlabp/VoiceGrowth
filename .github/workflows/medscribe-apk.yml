@@ -1,0 +1,56 @@
+name: MedScribe Android APK
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  medscribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 9.2.1
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.2.1'
+
+      - name: Unit tests
+        run: gradle --no-daemon :scribe:testDebugUnitTest --stacktrace
+
+      - name: Lint
+        run: gradle --no-daemon :scribe:lintDebug --stacktrace
+
+      - name: Build debug APK
+        run: gradle --no-daemon :scribe:assembleDebug --stacktrace
+
+      - name: Verify APK signature and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="scribe/build/outputs/apk/debug/scribe-debug.apk"
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK"
+          sha256sum "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MedScribe-Local-debug-apk
+          path: scribe/build/outputs/apk/debug/scribe-debug.apk
+          if-no-files-found: error
+          retention-days: 30
