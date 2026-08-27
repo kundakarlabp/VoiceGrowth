@@ -90,7 +90,7 @@ object VoiceProfileStore {
         return runCatching {
             val bytes = Base64.decode(encoded, Base64.NO_WRAP)
             val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-            FloatArray(bytes.size / 4) { buffer.float }
+            FloatArray(bytes.size / 4) { buffer.getFloat() }
         }.getOrDefault(FloatArray(0))
     }
 }
@@ -144,7 +144,7 @@ object SpeakerIdentityEngine {
             }
         }
 
-    suspend fun identify(
+    internal suspend fun identify(
         context: Context,
         pcm: DecodedPcmFile,
         turns: List<SpeechTurn>
