@@ -36,8 +36,16 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :scribe:assembleDebug --stacktrace
 
-      - name: APK checksum
-        run: sha256sum scribe/build/outputs/apk/debug/scribe-debug.apk
+      - name: Verify APK signature and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="scribe/build/outputs/apk/debug/scribe-debug.apk"
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK"
+          sha256sum "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
