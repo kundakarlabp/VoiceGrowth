@@ -1,11 +1,9 @@
 package com.voicegrowth.app.ui.screens.settings
 
-import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,9 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Button
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,13 +32,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.voicegrowth.app.service.CaptureNotificationManager
@@ -51,46 +45,20 @@ import com.voicegrowth.app.service.CaptureNotificationManager
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
     val settings by viewModel.settingsState.collectAsState()
-    val aiImporting by viewModel.aiImporting.collectAsState()
-    val aiMessage by viewModel.aiMessage.collectAsState()
-    val aiProgress by viewModel.aiProgress.collectAsState()
     val folderStatus by viewModel.folderStatus.collectAsState()
     val driveTreeStatus by viewModel.driveTreeStatus.collectAsState()
-    val drive by viewModel.driveUiState.collectAsState()
-    val driveResolution by viewModel.driveResolution.collectAsState()
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) viewModel.configureRecordingFolder(uri)
     }
-
     val driveFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) viewModel.configureDriveTree(uri)
     }
 
-    val aiModelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) viewModel.importAiModel(uri)
-    }
-
-    val driveAuthorization = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            viewModel.completeDriveAuthorization(result.data)
-        } else {
-            viewModel.cancelDriveAuthorization()
-        }
-    }
-
-    LaunchedEffect(driveResolution) {
-        driveResolution?.let { pending ->
-            driveAuthorization.launch(IntentSenderRequest.Builder(pending.intentSender).build())
-            viewModel.consumeDriveResolution()
-        }
-    }
-
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Settings & automation", fontWeight = FontWeight.Bold) },
+            title = { Text("VoiceGrowth settings", fontWeight = FontWeight.Bold) },
             navigationIcon = {
                 IconButton(onClick = onNavigateBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -102,40 +70,16 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SectionTitle("Recording source")
+            SectionTitle("Recording")
             OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text("Call recording folder", fontWeight = FontWeight.SemiBold)
-                    Text(settings.selectedFolderDisplayName ?: "Not selected", style = MaterialTheme.typography.bodySmall)
-                    folderStatus?.let { status ->
-                        Text(
-                            status.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (status.accessible && status.persistedReadPermission) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            }
-                        )
-                        if (status.accessible) {
-                            Text(
-                                "Visible audio: ${status.audioFileCount} · folders checked: ${status.visitedDirectoryCount}",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            folderPicker.launch(settings.selectedFolderUri?.let(Uri::parse))
-                        }) {
-                            Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Choose folder")
-                        }
-                        if (settings.selectedFolderUri != null) {
-                            OutlinedButton(onClick = viewModel::scanSelectedFolderNow) { Text("Test & scan") }
-                        }
-                    }
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Consult recording quality", fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Choose the highest iQOO/Funtouch folder that contains call recordings. VoiceGrowth checks nested subfolders and verifies that Android retained read access.",
+                        "VoiceGrowth records mono AAC-LC in .m4a at 48 kHz / 160 kbps using Android's speech-tuned microphone source. The original audio is preserved for cloud transcription.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        "For quiet speakers, place the phone between speakers and avoid covering the microphone. Recording quality matters more than local AI processing.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -147,9 +91,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                     val notificationReady = CaptureNotificationManager.canPostNotifications(context)
                     Text(
                         if (notificationReady) {
-                            "Notification access is available. VoiceGrowth can keep Record / Scan controls in the notification shade and lock screen."
+                            "Record / Stop controls can remain available from the notification shade and lock screen."
                         } else {
-                            "VoiceGrowth notifications are blocked. Persistent Record / Stop / Scan controls cannot appear until notifications are enabled."
+                            "Notifications are blocked. Enable them for reliable Record / Stop controls."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (notificationReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -160,132 +104,33 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                                     .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                             )
-                        }) { Text("Notification settings") }
+                        }) { Text("Notifications") }
                         OutlinedButton(onClick = {
                             context.startActivity(
                                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
                             )
-                        }) { Text("App / battery settings") }
+                        }) { Text("App / battery") }
                     }
-                    Text(
-                        "On iQOO/Funtouch, also allow background activity/auto-start and avoid aggressive battery restriction if the OS removes VoiceGrowth controls.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
             }
 
-            SectionTitle("Automation & processing")
-            Toggle("Automatic processing", "Periodic WorkManager scans detect completed recordings without keeping a permanent data-sync foreground service alive.", settings.autoProcessing, viewModel::setAutoProcessing)
-            Toggle("Wi-Fi only sync", "Cloud uploads require an unmetered network.", settings.wifiOnly, viewModel::setWifiOnly)
-            Toggle("Only process recordings >30s", "Skip brief calls and accidental recordings.", settings.onlyProcessOver30Sec, viewModel::setOnlyProcessOver30Sec)
-
-            Text("Transcription language", fontWeight = FontWeight.SemiBold)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("auto" to "Auto", "english" to "English", "telugu" to "Telugu", "hindi" to "Hindi").forEach { (value, label) ->
-                    FilterChip(
-                        selected = settings.transcriptionLanguage == value,
-                        onClick = { viewModel.setTranscriptionLanguage(value) },
-                        label = { Text(label) }
-                    )
-                }
-            }
-            Text(
-                "Recorded-file speech-to-text uses dedicated local Whisper when installed. Android's on-device SpeechRecognizer remains a compatibility fallback. Gemma/LiteRT-LM runs only after transcription for private structuring.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            OfflineAsrSettingsCard()
-
-            SectionTitle("On-device AI")
+            SectionTitle("Google Drive")
             OutlinedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Gemma / LiteRT-LM", fontWeight = FontWeight.SemiBold)
+                    Text("Original-audio destination", fontWeight = FontWeight.SemiBold)
                     Text(
-                        settings.aiModelDisplayName?.let { "Imported model: $it" }
-                            ?: "No model imported into VoiceGrowth",
+                        "VoiceGrowth writes the original recording through Android Files/Google Drive. No local transcription or Gemma model is required.",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    Text(
-                        "Recommended starting model: Gemma 3 1B IT INT4 LiteRT-LM (about 557 MiB). Downloading may require signing in to Hugging Face and accepting the Gemma license once.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { uriHandler.openUri(RECOMMENDED_MODEL_PAGE) }) {
-                            Text("Get Gemma 3 1B")
-                        }
-                        Button(
-                            enabled = !aiImporting,
-                            onClick = { aiModelPicker.launch(arrayOf("application/octet-stream", "*/*")) }
-                        ) {
-                            Text(if (aiImporting) "Importing…" else if (settings.aiModelPath == null) "Import downloaded model" else "Replace model")
-                        }
-                    }
-                    aiProgress?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                    }
-                    aiMessage?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (it.startsWith("Model import failed")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    if (settings.aiModelPath != null) {
-                        OutlinedButton(enabled = !aiImporting, onClick = viewModel::removeAiModel) { Text("Remove imported model") }
-                    }
-                    Text(
-                        "The picker must select the actual .litertlm file from Downloads/Files. VoiceGrowth checks free space and shows copy progress; a failed replacement keeps the previous working model.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Toggle(
-                        "Enable on-device AI synthesis",
-                        "Generate a title, summary, stated decisions/actions, questions, learning points and follow-up.",
-                        settings.aiEnabled,
-                        viewModel::setAiEnabled
-                    )
-                    Toggle(
-                        "Daily AI digest around 9 PM",
-                        "Opt-in. Summarize today's processed VoiceGrowth transcripts locally when battery/storage are healthy.",
-                        settings.dailyDigestEnabled,
-                        viewModel::setDailyDigestEnabled
-                    )
-                    Text("Preferred AI backend", fontWeight = FontWeight.SemiBold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = settings.aiPreferredBackend == "gpu",
-                            onClick = { viewModel.setAiPreferredBackend("gpu") },
-                            label = { Text("GPU first") }
-                        )
-                        FilterChip(
-                            selected = settings.aiPreferredBackend == "cpu",
-                            onClick = { viewModel.setAiPreferredBackend("cpu") },
-                            label = { Text("CPU only") }
-                        )
-                    }
-                    Text("GPU first automatically falls back to CPU if LiteRT-LM cannot initialize the GPU backend.", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-
-            SectionTitle("Privacy & cloud")
-            Toggle("Clinical privacy mode", "Pattern-based redaction before AI processing and transcript upload; manual review is still recommended.", settings.clinicalPrivacyMode, viewModel::setClinicalPrivacyMode)
-            Toggle("Upload transcript (.md)", "Sync the locally processed Markdown transcript and optional AI synthesis to Drive.", settings.uploadTranscript, viewModel::setUploadTranscript)
-            Toggle("Upload original audio", "Original audio is NOT de-identified and may contain patient identifiers. Keep this off unless specifically required.", settings.uploadAudio, viewModel::setUploadAudio)
-
-            OutlinedCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Google Drive", fontWeight = FontWeight.SemiBold)
-                    Text("Recommended connection", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Choose a Google Drive folder through Android Files. This avoids OAuth client/SHA-1 problems: the Drive app/provider handles your Google account and VoiceGrowth receives only read/write access to the folder you select.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-
                     if (settings.driveTreeUri.isNullOrBlank()) {
                         Text("No Drive folder selected", style = MaterialTheme.typography.bodyMedium)
                         Button(onClick = { driveFolderPicker.launch(null) }) {
-                            Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Choose Google Drive folder")
+                            Icon(Icons.Default.Folder, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Choose Google Drive folder")
                         }
                         Text(
-                            "In the system picker: open the side menu → Google Drive → choose My Drive or a parent folder → Use this folder / Allow. VoiceGrowth will create ${settings.driveFolderHierarchy}/YYYY/MM-MMM inside it.",
+                            "In Android Files, choose Google Drive → select a parent folder → Use this folder. VoiceGrowth creates VoiceGrowth/Audio/YYYY/MM-MMM.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     } else {
@@ -297,78 +142,65 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (it.usable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
-                            Text(
-                                "Persistent access: read ${if (it.persistedReadPermission) "✓" else "✗"} · write ${if (it.persistedWritePermission) "✓" else "✗"}",
-                                style = MaterialTheme.typography.bodySmall
-                            )
                         }
-                        Text("Destination under selected folder: ${settings.driveFolderHierarchy}/YYYY/MM-MMM", style = MaterialTheme.typography.bodySmall)
+                        Text("Destination: VoiceGrowth/Audio/YYYY/MM-MMM", style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { driveFolderPicker.launch(Uri.parse(settings.driveTreeUri)) }) {
-                                Text("Change folder")
-                            }
-                            OutlinedButton(onClick = { viewModel.refreshDriveTreeStatus(testWrite = true) }) {
-                                Text("Test & sync")
-                            }
+                            Button(onClick = { driveFolderPicker.launch(Uri.parse(settings.driveTreeUri)) }) { Text("Change folder") }
+                            OutlinedButton(onClick = { viewModel.refreshDriveTreeStatus(testWrite = true) }) { Text("Test & sync") }
                         }
-                        OutlinedButton(onClick = viewModel::disconnectDriveTree) { Text("Disconnect Drive folder") }
-                    }
-
-                    Spacer(Modifier.height(6.dp))
-                    Text("Advanced: Google OAuth API", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Optional. Use this only if you specifically want direct Drive REST API access. It requires an Android OAuth client whose package and signing SHA-1 exactly match this APK.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        when {
-                            drive.checking -> "Checking OAuth authorization…"
-                            drive.authorized -> "OAuth connected: ${drive.accountLabel ?: "Google account"}"
-                            else -> "OAuth not connected (not required when Drive folder sync is healthy)"
-                        },
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    drive.message?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (drive.authorized || !settings.driveTreeUri.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
-                        )
-                    }
-                    Text("OAuth identity: ${drive.packageName.ifBlank { context.packageName }}", style = MaterialTheme.typography.bodySmall)
-                    Text("SHA-1: ${drive.signingSha1.ifBlank { "Checking…" }}", style = MaterialTheme.typography.bodySmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            enabled = !drive.checking,
-                            onClick = { viewModel.connectDrive(forceAccountPicker = true) }
-                        ) {
-                            Text(if (drive.authorized) "Switch OAuth account" else "Connect with OAuth")
-                        }
-                        OutlinedButton(enabled = !drive.checking, onClick = viewModel::refreshDriveAuthorization) {
-                            Text("Recheck OAuth")
-                        }
-                    }
-                    if (drive.authorized || settings.googleAccountEmail != null) {
-                        OutlinedButton(enabled = !drive.checking, onClick = viewModel::disconnectDrive) { Text("Disconnect OAuth") }
+                        OutlinedButton(onClick = viewModel::disconnectDriveTree) { Text("Disconnect") }
                     }
                 }
             }
 
-            SectionTitle("Storage & retention")
             Toggle(
-                "Delete original source audio automatically",
-                "OFF by default. Enabling this permanently deletes the original recording after the retention period and after any required cloud uploads are complete.",
+                "Wi-Fi only uploads",
+                "When enabled, Drive uploads wait for an unmetered network.",
+                settings.wifiOnly,
+                viewModel::setWifiOnly
+            )
+
+            SectionTitle("Optional phone recording import")
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("OEM call-recording folder", fontWeight = FontWeight.SemiBold)
+                    Text(settings.selectedFolderDisplayName ?: "Not selected", style = MaterialTheme.typography.bodySmall)
+                    folderStatus?.let { status ->
+                        Text(
+                            status.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (status.accessible && status.persistedReadPermission) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { folderPicker.launch(settings.selectedFolderUri?.let(Uri::parse)) }) {
+                            Icon(Icons.Default.Folder, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Choose folder")
+                        }
+                        if (settings.selectedFolderUri != null) {
+                            OutlinedButton(onClick = viewModel::scanSelectedFolderNow) { Text("Scan now") }
+                        }
+                    }
+                }
+            }
+            Toggle(
+                "Automatically scan linked call folder",
+                "Periodic WorkManager scans discover completed OEM recordings and queue them for Drive.",
+                settings.autoProcessing,
+                viewModel::setAutoProcessing
+            )
+
+            SectionTitle("Local retention")
+            Toggle(
+                "Delete local audio after upload",
+                "Off by default. If enabled, source audio is deleted only after the Drive copy exists and the retention period has elapsed.",
                 settings.deleteSourceAudioEnabled,
                 viewModel::setDeleteSourceAudioEnabled
             )
             OutlinedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Source-audio retention: ${settings.deleteLocalAudioDays} day(s)", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        if (settings.deleteSourceAudioEnabled) "Deletion occurs only after processing is complete and all currently required cloud copies exist."
-                        else "Automatic source-audio deletion is disabled.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Text("Retention: ${settings.deleteLocalAudioDays} day(s)", fontWeight = FontWeight.SemiBold)
                     Slider(
                         value = settings.deleteLocalAudioDays.toFloat(),
                         onValueChange = { viewModel.setDeleteLocalAudioDays(it.toInt()) },
@@ -398,8 +230,7 @@ private fun Toggle(title: String, subtitle: String, checked: Boolean, onChange: 
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Spacer(Modifier.width(12.dp)); Switch(checked = checked, onCheckedChange = onChange)
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
-
-private const val RECOMMENDED_MODEL_PAGE = "https://huggingface.co/litert-community/Gemma3-1B-IT"
