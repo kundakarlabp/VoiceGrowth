@@ -22,6 +22,12 @@ data class DriveTreeStatus(
     val message: String
 )
 
+data class DriveUploadResult(
+    val fileId: String,
+    val webViewLink: String?,
+    val folderPath: String
+)
+
 /**
  * Google-Drive/cloud sync through Android Storage Access Framework.
  *
@@ -109,7 +115,7 @@ class DriveTreeSyncService(private val context: Context) {
         localFile: File,
         mimeType: String,
         recordedAtMillis: Long,
-        baseHierarchy: String = "VoiceGrowth/Transcripts"
+        baseHierarchy: String = "VoiceGrowth/Audio"
     ): Result<DriveUploadResult> = withContext(Dispatchers.IO) {
         runCatching {
             require(localFile.exists() && localFile.length() > 0L) { "Local upload file is missing or empty" }
@@ -166,7 +172,7 @@ class DriveTreeSyncService(private val context: Context) {
             .map(String::trim)
             .filter { it.isNotEmpty() && it != "." && it != ".." }
             .map(::sanitizeSegment)
-        return if (segments.isEmpty()) listOf("VoiceGrowth", "Transcripts") else segments
+        return if (segments.isEmpty()) listOf("VoiceGrowth", "Audio") else segments
     }
 
     private fun sanitizeSegment(value: String): String = value
