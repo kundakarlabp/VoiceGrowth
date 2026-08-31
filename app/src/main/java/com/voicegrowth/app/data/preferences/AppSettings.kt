@@ -1,15 +1,19 @@
 package com.voicegrowth.app.data.preferences
 
 data class AppSettings(
+    // Periodic OEM call-folder scanning remains useful; consult recordings themselves always queue.
     val autoProcessing: Boolean = true,
     val wifiOnly: Boolean = false,
-    val onlyProcessOver30Sec: Boolean = true,
-    val uploadAudio: Boolean = false,
-    val uploadTranscript: Boolean = true,
+
+    // Legacy v1 fields are retained for preference/database compatibility but are no longer used by
+    // the v2 capture pipeline.
+    val onlyProcessOver30Sec: Boolean = false,
+    val uploadAudio: Boolean = true,
+    val uploadTranscript: Boolean = false,
     val deleteSourceAudioEnabled: Boolean = false,
     val deleteLocalAudioDays: Int = 7,
     val transcriptionLanguage: String = "auto",
-    val driveFolderHierarchy: String = "VoiceGrowth/Transcripts",
+    val driveFolderHierarchy: String = "VoiceGrowth/Audio",
     val driveTreeUri: String? = null,
     val driveTreeDisplayName: String? = null,
     val clinicalPrivacyMode: Boolean = true,

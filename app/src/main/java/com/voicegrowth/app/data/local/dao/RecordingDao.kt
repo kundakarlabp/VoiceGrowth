@@ -25,14 +25,15 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings WHERE recordedAt >= :startMillis AND recordedAt < :endMillis AND transcriptPath IS NOT NULL ORDER BY recordedAt ASC")
     suspend fun getRecordingsBetween(startMillis: Long, endMillis: Long): List<RecordingEntity>
 
-    // TRANSCRIBING is included so WorkManager/process death cannot strand a row forever.
     @Query("SELECT * FROM recordings WHERE status IN ('PENDING', 'TRANSCRIBING') ORDER BY recordedAt ASC")
     suspend fun getPendingRecordings(): List<RecordingEntity>
 
-    @Query("SELECT * FROM recordings WHERE status IN ('LOCAL_READY', 'WAITING_FOR_SYNC', 'UPLOADED') ORDER BY recordedAt ASC")
+    // Include legacy processing states so an upgrade to v2 can upload recordings that were waiting
+    // for local ASR in earlier versions.
+    @Query("SELECT * FROM recordings WHERE status IN ('PENDING', 'TRANSCRIBING', 'LOCAL_READY', 'WAITING_FOR_SYNC', 'UPLOADED', 'FAILED') ORDER BY recordedAt ASC")
     suspend fun getSyncCandidates(): List<RecordingEntity>
 
-    @Query("SELECT * FROM recordings WHERE status IN ('LOCAL_READY', 'UPLOADED') AND processedAt IS NOT NULL AND processedAt < :olderThanTimestamp")
+    @Query("SELECT * FROM recordings WHERE status = 'UPLOADED' AND recordedAt < :olderThanTimestamp")
     suspend fun getCompletedOlderThan(olderThanTimestamp: Long): List<RecordingEntity>
 
     @Query("UPDATE recordings SET status = :status, errorMessage = :error WHERE id = :id")

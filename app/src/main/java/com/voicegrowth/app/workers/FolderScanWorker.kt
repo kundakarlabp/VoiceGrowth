@@ -38,14 +38,12 @@ class FolderScanWorker(
         return try {
             val newCount = FolderScanner(applicationContext, repository)
                 .scanFolder(Uri.parse(folder), settings)
-            if (newCount > 0) app.enqueueAudioProcessing()
+            if (newCount > 0) app.enqueueDriveSync(settings.wifiOnly)
             CaptureNotificationManager.showReady(
                 applicationContext,
                 if (forced) {
-                    if (newCount > 0) "$newCount new recording(s) queued" else "Folder checked · no new completed recordings"
-                } else {
-                    null
-                }
+                    if (newCount > 0) "$newCount new recording(s) queued for Drive" else "Folder checked · no new completed recordings"
+                } else null
             )
             Result.success()
         } catch (e: CancellationException) {

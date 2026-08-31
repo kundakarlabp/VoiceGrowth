@@ -1,168 +1,109 @@
-# VoiceGrowth Android Companion — v1.3.3
+# VoiceGrowth Android Capture — v2.0.0
 
-VoiceGrowth is a privacy-first Android companion for low-friction capture of iQOO/Funtouch call recordings, bedside/academic discussions, voice reflections, and imported audio. It performs local speech-to-text, de-identification, optional on-device Gemma/LiteRT-LM synthesis, searchable local knowledge retrieval, structured Markdown, and optional Google Drive sync.
+VoiceGrowth is a small Android capture and Google Drive transport app for clinical consult discussions, bedside/academic conversations, voice notes, imported audio, and optional OEM call recordings.
 
-## Core pipeline
+## v2 design
 
-```text
-iQOO/Funtouch OEM call recording
-OR VoiceGrowth discussion/reflection recording
-OR imported/shared audio
-        ↓
-Dedicated local Whisper file-ASR (preferred)
-        ↓
-Android on-device SpeechRecognizer (fallback only)
-        ↓
-Clinical identifier scrubber + manual-review warning
-        ↓
-OPTIONAL Gemma-compatible LiteRT-LM model
-        ↓
-AI title / summary / decisions / actions / questions / learning points
-        ↓
-Markdown preserves BOTH AI synthesis and source ASR transcript
-        ↓
-Optional Google Drive sync
-```
-
-## v1.3.3 — reliable prerecorded-file transcription
-
-A real iQOO device exposed a weakness in the previous ASR architecture: Android may report that on-device speech recognition exists while the vendor recognizer still does not reliably consume prerecorded audio supplied through `RecognizerIntent.EXTRA_AUDIO_SOURCE`. The result can be a valid recording remaining **Pending** with `On-device speech recognition failed (no speech match)`.
-
-v1.3.3 removes that dependency for normal recorded-file transcription.
-
-### Dedicated offline Whisper ASR
-
-- Adds sherpa-onnx non-streaming Android ASR.
-- Adds a one-tap installer for **Whisper tiny multilingual INT8** (~104 MB model download).
-- Model encoder/decoder downloads are size- and SHA-256-validated before activation.
-- Downloads use staged `.part` files so an interrupted install is not treated as a valid model.
-- Recorded audio is decoded directly to mono PCM16 and passed to Whisper; no microphone input is involved.
-- Long recordings are processed in overlapping 26-second chunks with deterministic overlap de-duplication.
-- Whisper handles Auto/multilingual, English, Telugu and Hindi modes.
-- Android SpeechRecognizer remains only as a compatibility fallback.
-- If the reliable ASR model is missing, the recording remains **Pending** without consuming its retry budget.
-- Successful model installation automatically re-enqueues pending recordings.
-
-Use:
-
-1. Open **Settings → Automation & processing → Reliable offline file transcription**.
-2. Tap **Install offline Whisper (~104 MB)**.
-3. Keep the app/network available until the progress reaches 100%.
-4. Pending recordings are retried automatically when installation completes.
-
-The Whisper model performs **speech-to-text only**. Gemma/LiteRT-LM remains a separate post-transcription intelligence layer for summarization, decisions/actions, learning points, Ask AI and daily digest.
-
-### Device build optimization
-
-The v1.3.3 personal/debug build is packaged for **arm64-v8a**, matching modern 64-bit Android phones such as the target iQOO device. This avoids bundling unused ARM32/x86/x86_64 copies of ONNX Runtime and sherpa-onnx.
-
-## v1.3.2 — Google Drive reliability retained
-
-The recommended Drive path does not depend on VoiceGrowth OAuth registration.
-
-### Recommended Drive connection — Android Storage Access Framework
-
-1. Open **Settings → Google Drive**.
-2. Tap **Choose Google Drive folder**.
-3. In Android Files, open the side menu and choose **Google Drive**.
-4. Choose **My Drive** or another parent folder, then tap **Use this folder / Allow**.
-5. VoiceGrowth persists read/write tree access and performs a create/write/delete verification before accepting the folder.
-6. Existing waiting transcripts are queued for sync automatically.
-
-VoiceGrowth creates the configured hierarchy inside the selected folder, by default:
+VoiceGrowth deliberately does **not** transcribe or run a local LLM. The original recording is the primary artifact.
 
 ```text
-VoiceGrowth/Transcripts/YYYY/MM-MMM
+VoiceGrowth consult recording
+OR imported audio
+OR optional OEM call recording
+        ↓
+Original audio preserved locally
+        ↓
+WorkManager upload queue
+        ↓
+User-selected Google Drive folder via Android SAF
+        ↓
+VoiceGrowth/Audio/YYYY/MM-MMM
+        ↓
+Downstream ChatGPT / cloud transcription and clinical analysis
 ```
 
-Original audio, when explicitly enabled, uses the corresponding `VoiceGrowth/Audio/...` hierarchy.
+The Android app therefore has one job: **capture the best practical source audio reliably and move it safely to the user's private Drive folder.**
 
-This path relies on Android's system document provider. The Google Drive app/provider owns Google-account authentication and cloud transport. VoiceGrowth receives access only to the selected folder tree. Normal sync therefore requires **no VoiceGrowth OAuth client, no package/SHA-1 registration, no embedded Google login, and no access-token handling**.
+## Recording quality
 
-The Google Identity Services `AuthorizationClient` + Drive REST path remains available as an optional advanced fallback.
+Manual consult/discussion recordings use:
 
-## Capture and screen-off reliability
+- MPEG-4 container (`.m4a`)
+- AAC-LC encoder
+- mono audio
+- 48 kHz sampling
+- 160 kbps target bitrate
+- Android `VOICE_RECOGNITION` audio source
 
-- Persistent **VoiceGrowth ready** notification with **Record** and **Scan now** controls.
-- Active recording notification shows a chronometer and direct **Stop** action.
-- Microphone recording holds a bounded partial wake lock while active.
-- Quick Settings and notification capture are routed through a show-when-locked activity before creating the microphone foreground service on current Android versions.
-- No permanent 60-second foreground polling service; OEM-call discovery uses WorkManager fallback scans plus explicit Scan-now/setup-triggered scans.
+The recording service runs as a microphone foreground service, holds a bounded partial wake lock while recording, and provides a direct Stop action from the active-recording notification.
 
-## Call-recording folder
+For quiet speakers, physical microphone placement still matters: keep the phone unobstructed and reasonably central between speakers.
 
-- SAF read permission is validated and persisted before a folder is accepted.
-- Settings reports folder health and visible supported audio count.
-- Scanning is recursive with bounded depth/node count for nested iQOO/Funtouch folders.
-- Lost permissions produce an actionable re-select message rather than a silent empty scan.
+## Capture methods
 
-## Recording and capture modes
+### Consult / bedside discussion
 
-### Calls
-
-VoiceGrowth does **not** intercept privileged call audio. Enable native automatic call recording in iQOO/Funtouch, select its recording folder through Android SAF, then use **Test & scan**.
-
-### Bedside / academic discussion
-
-Tap **Record discussion → Bedside / Consult**. The finished recording enters the ASR → privacy → optional AI → Markdown → Drive pipeline.
-
-### Voice reflection / quick capture
-
-Use **Record discussion → Reflection**, the **VoiceGrowth capture** Quick Settings tile, or the persistent notification **Record** action. VoiceGrowth does not continuously listen in the background.
+Tap **Record consult** in the app, or use the persistent notification / Quick Settings capture control. Stop when the discussion is complete. A valid recording is queued directly for Drive sync.
 
 ### Imported audio
 
-Use the **+** button or Android **Share → VoiceGrowth**. Shared audio is copied into VoiceGrowth-owned storage before queueing.
+Use **+** in VoiceGrowth or Android **Share → VoiceGrowth**. Imported audio is copied to VoiceGrowth-owned storage and queued for Drive.
 
-## On-device AI
+### OEM call recordings
 
-1. Open **Settings → On-device AI**.
-2. Import a compatible `.litertlm` model; `gemma3-1b-it-int4.litertlm` is the recommended starting model.
-3. Keep **GPU first** normally; LiteRT-LM falls back to CPU when GPU initialization fails.
-4. Enable **On-device AI synthesis**.
-5. Optionally enable the approximately 9 PM local **Daily AI digest**.
+Optional. Select the highest iQOO/Funtouch folder containing the phone's native recordings. VoiceGrowth retains SAF read permission and scans nested folders with a stability window so files still being written are not uploaded prematurely.
 
-Android sandboxing prevents VoiceGrowth from directly reading another application's private model storage. The Gemma model must be accessible through Android's document picker before import.
+## Google Drive
 
-## AI safety model
+The supported v2 path is Android Storage Access Framework (SAF):
+
+1. Open **Settings → Google Drive**.
+2. Choose a Google Drive folder through Android Files.
+3. Grant **Use this folder / Allow**.
+4. VoiceGrowth verifies persisted read/write access with a create/write/delete test.
+5. Recordings are stored under:
 
 ```text
-local speech model
-        ↓
-source transcript
-        ↓
-forced de-identification for AI
-        ↓
-Gemma/LiteRT-LM organization and synthesis
+VoiceGrowth/Audio/YYYY/MM-MMM
 ```
 
-The LLM does not replace the primary speech recognizer. Source transcript text is retained separately from AI synthesis. Library questions and daily digests use forcibly de-identified source evidence, and prior AI-generated synthesis is excluded from retrieval evidence.
+The Drive app/provider owns Google authentication and cloud transport. VoiceGrowth does not require a Google OAuth client, embedded Google login, or Drive REST access token.
 
-VoiceGrowth does not claim speaker diarization and does not use direct long-audio Gemma transcription.
+## Upload behavior
 
-## Important limitations
+- A finished manual recording is immediately inserted as `WAITING_FOR_SYNC`.
+- Imported and discovered OEM recordings use the same queue.
+- WorkManager retries transient failures with exponential backoff.
+- Wi-Fi-only upload is optional.
+- Legacy v1 queue states are included as sync candidates so older recordings can still be uploaded after upgrading.
+- A recording becomes `UPLOADED` only after a Drive audio file reference has been stored.
 
-1. Dedicated Whisper transcription requires the optional ~104 MB offline ASR model to be installed once.
-2. If Whisper is not installed, Android 13+/API 33+ recorded-file injection is attempted only as a fallback and may be unsupported by some vendor recognizers.
-3. `RECORD_AUDIO` is required for VoiceGrowth microphone capture; dedicated offline file-ASR does not need microphone input.
-4. Clinical de-identification is heuristic and cannot guarantee anonymization; manual review remains required.
-5. LLM output can be wrong despite evidence-constrained prompting and must be checked against source transcripts.
-6. Original audio is not de-identified. Original-audio Drive upload is therefore off by default.
-7. LiteRT-LM speed/GPU support and Whisper inference speed are device dependent. AI synthesis failure does not block a successfully produced transcript.
-8. Google Drive must be exposed as a DocumentsProvider in Android Files for the recommended SAF sync path; optional OAuth remains available otherwise.
-9. iQOO/Funtouch background-management behavior still requires physical-device smoke testing.
-10. The v1.3.3 personal/debug APK is arm64-v8a only.
+## Local retention
 
-## iQOO / Funtouch smoke test
+Automatic local deletion is **off by default**.
 
-1. Grant microphone and notification permissions.
-2. Select the OEM call-recording folder and press **Test & scan**.
-3. Install **Reliable offline file transcription** in Settings.
-4. Record a 60–90 second discussion, lock the screen for part of it, then stop.
-5. Confirm **Pending → Transcribing → Waiting sync / Local** and verify the transcript text is genuine.
-6. Confirm Gemma synthesis appears separately from the source transcript.
-7. Choose a Google Drive folder through Android Files and press **Test & sync**.
-8. Test English first, then Auto/Telugu/Hindi as needed.
+If enabled, VoiceGrowth deletes local source audio only after:
+
+1. the configured retention period has elapsed, and
+2. the corresponding Drive audio copy exists.
+
+## Removed from v2
+
+The following v1 components were intentionally removed from the Android app:
+
+- sherpa-onnx / local Whisper transcription
+- Android prerecorded-file speech-recognition fallback
+- Gemma / LiteRT-LM on-device synthesis
+- local transcript Markdown generation
+- local transcript knowledge search
+- local daily AI digest
+- Google Drive REST/OAuth path
+
+These functions are better handled downstream by higher-capability cloud transcription and ChatGPT-based medical reasoning, without making the phone app large or brittle.
+
+## Privacy boundary
+
+Original audio may contain patient identifiers and is **not de-identified**. Use an access-restricted Drive location and follow applicable institutional requirements for clinical recordings. Downstream transcription/clinical processing should explicitly separate source transcript, normalized transcript, extracted facts, and AI interpretation.
 
 ## Build
 
@@ -173,38 +114,26 @@ Requirements:
 - Gradle 9.2.1
 - Android Gradle Plugin 8.13.0
 - Kotlin 2.2.0
-- Google Play services auth 21.6.0
 - Room 2.8.4
-- LiteRT-LM Android 0.11.0
-- sherpa-onnx Android 1.13.4
 
-Validation:
+Validation target:
 
 ```bash
 gradle testDebugUnitTest lintDebug assembleDebug
 ```
 
-GitHub Actions runs the same validation and publishes `VoiceGrowth-debug-apk`.
+GitHub Actions runs the same validation and publishes the debug APK artifact when the workflow is triggered.
 
-### Stable signed release APK
+## Physical-device smoke test
 
-The manual **Signed Android Release** workflow requires these repository Actions secrets:
+1. Install the v2 build on the target phone.
+2. Grant microphone and notification permissions.
+3. Choose the private Google Drive destination through Android Files and run **Test & sync**.
+4. Record a 60–90 second two-speaker consult-style discussion, including a quieter second speaker.
+5. Lock the screen for part of the recording.
+6. Stop from the notification.
+7. Confirm **Waiting sync → Drive synced**.
+8. Confirm the original `.m4a` exists under `VoiceGrowth/Audio/YYYY/MM-MMM` and plays clearly.
+9. Repeat once with background noise typical of the ward and once with the phone placed between both speakers.
 
-```text
-ANDROID_KEYSTORE_BASE64
-ANDROID_KEYSTORE_PASSWORD
-ANDROID_KEY_ALIAS
-ANDROID_KEY_PASSWORD
-```
-
-Never commit the private release keystore or passwords to this public repository. Stable signing is required for seamless upgrades between independently built APKs.
-
-## Privacy defaults
-
-- Clinical privacy mode: **ON**
-- On-device AI synthesis: **OFF**
-- Daily AI digest: **OFF**
-- Upload transcript: **ON**
-- Upload original audio: **OFF**
-- Automatic deletion of original source audio: **OFF**
-- Android app backup: **OFF**
+The downstream transcription/ChatGPT layer should be implemented only after this capture-and-upload path is verified on the real device.

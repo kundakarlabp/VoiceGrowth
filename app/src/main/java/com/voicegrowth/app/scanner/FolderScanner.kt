@@ -35,7 +35,6 @@ class FolderScanner(
             if (repository.getByUri(uriString) != null) return
 
             val lastModified = doc.lastModified()
-            // Avoid picking up an OEM file while the call recorder is still writing it.
             if (lastModified > 0 && now - lastModified < FILE_STABILITY_WINDOW_MS) return
             val size = doc.length()
             if (size <= 0L) return
@@ -46,13 +45,6 @@ class FolderScanner(
                 fallbackRecordedAt = lastModified,
                 fallbackSize = size
             )
-            val status = if (
-                settings.onlyProcessOver30Sec && metadata.durationSeconds in 1 until MIN_DURATION_SECONDS
-            ) {
-                ProcessingStatus.SKIPPED_TOO_SHORT
-            } else {
-                ProcessingStatus.PENDING
-            }
 
             val inserted = repository.insertRecording(
                 RecordingEntity(
@@ -63,10 +55,10 @@ class FolderScanner(
                     durationSeconds = metadata.durationSeconds,
                     fileSizeBytes = size,
                     recordedAt = metadata.recordedAt,
-                    status = status
+                    status = ProcessingStatus.WAITING_FOR_SYNC
                 )
             )
-            if (inserted > 0 && status == ProcessingStatus.PENDING) newRecordings++
+            if (inserted > 0) newRecordings++
         }
 
         suspend fun walk(directory: DocumentFile, depth: Int) {
@@ -86,7 +78,6 @@ class FolderScanner(
     }
 
     companion object {
-        private const val MIN_DURATION_SECONDS = 30L
         private const val FILE_STABILITY_WINDOW_MS = 10_000L
         private const val MAX_DEPTH = 6
         private const val MAX_NODES = 4_000

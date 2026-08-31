@@ -24,13 +24,10 @@ android {
         applicationId = "com.voicegrowth.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.3.3"
+        versionCode = 9
+        versionName = "2.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
     }
 
     signingConfigs {
@@ -82,14 +79,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.kotlinx.coroutines.play.services)
-    implementation(libs.play.services.auth)
-    implementation(libs.google.api.client.android)
-    implementation(libs.google.http.client.android)
-    implementation(libs.google.http.client.gson)
-    implementation(libs.google.api.services.drive)
-    implementation(libs.litertlm)
-    implementation("com.github.k2-fsa:sherpa-onnx:v1.13.4")
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }
