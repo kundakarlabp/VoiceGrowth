@@ -12,6 +12,9 @@ import com.voicegrowth.app.sync.DriveTreeSyncService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * VoiceGrowth v2 cloud transport.
@@ -26,6 +29,7 @@ class DriveSyncWorker(
 ) : CoroutineWorker(appContext, params) {
 
     private val driveTree = DriveTreeSyncService(appContext)
+    private val fileStampFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
 
     override suspend fun doWork(): Result {
         val app = applicationContext as VoiceGrowthApplication
@@ -116,20 +120,29 @@ class DriveSyncWorker(
     private fun audioHierarchy(settings: AppSettings): String {
         val base = settings.driveFolderHierarchy.trim('/').ifBlank { "VoiceGrowth/Audio" }
         return when {
-            base.endsWith("/Transcripts", ignoreCase = true) -> base.removeSuffix("/Transcripts") + "/Audio"
-            base.equals("VoiceGrowth/Transcripts", ignoreCase = true) -> "VoiceGrowth/Audio"
+            base.endsWith("/Transcripts", ignoreCase = true) -> base.substringBeforeLast('/') + "/Audio"
+            base.equals("Transcripts", ignoreCase = true) -> "VoiceGrowth/Audio"
             else -> base
         }
     }
 
+    /**
+     * Copy provider/file audio to a local cache file whose name is also safe to use as the Drive
+     * archive name. Do not reuse patient/caller supplied filenames in the cloud archive.
+     */
     private fun copyAudioToCache(recording: RecordingEntity): File {
         val ext = recording.fileName.substringAfterLast('.', "m4a")
-            .lowercase()
+            .lowercase(Locale.US)
             .takeIf { it.matches(Regex("[a-z0-9]{1,8}")) }
             ?: "m4a"
-        val target = File(applicationContext.cacheDir, "upload_${recording.id}_${System.nanoTime()}.$ext")
+        val sourceLabel = recording.source.name.lowercase(Locale.US)
+        val stamp = synchronized(fileStampFormat) { fileStampFormat.format(Date(recording.recordedAt)) }
+        val target = File(
+            applicationContext.cacheDir,
+            "VG_${stamp}_${recording.id}_${sourceLabel}.$ext"
+        )
         val uri = Uri.parse(recording.uriString)
-        when (uri.scheme?.lowercase()) {
+        when (uri.scheme?.lowercase(Locale.US)) {
             "file" -> {
                 val source = File(requireNotNull(uri.path) { "Invalid file URI" })
                 require(source.exists()) { "Original audio is no longer available" }
@@ -145,7 +158,7 @@ class DriveSyncWorker(
         return target
     }
 
-    private fun mimeTypeFor(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
+    private fun mimeTypeFor(name: String): String = when (name.substringAfterLast('.', "").lowercase(Locale.US)) {
         "m4a", "mp4" -> "audio/mp4"
         "mp3" -> "audio/mpeg"
         "wav" -> "audio/wav"
