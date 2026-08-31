@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/** Removes local source audio only after the user opts in and retention has expired. */
+/** Removes local source audio only after the user opts in, retention expires, and Drive has a copy. */
 class CleanupWorker(
     appContext: Context,
     params: WorkerParameters
@@ -26,13 +26,8 @@ class CleanupWorker(
         val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(settings.deleteLocalAudioDays.toLong())
 
         return try {
-            val cloudUploadRequired = settings.uploadTranscript || settings.uploadAudio
             repository.getCompletedOlderThan(cutoff).forEach { recording ->
-                val requiredCloudCopiesExist =
-                    (!settings.uploadTranscript || !recording.driveFileId.isNullOrBlank()) &&
-                        (!settings.uploadAudio || !recording.driveAudioFileId.isNullOrBlank())
-                // Never remove source audio that may still be needed for a newly enabled cloud upload.
-                if (!cloudUploadRequired || requiredCloudCopiesExist) {
+                if (!recording.driveAudioFileId.isNullOrBlank()) {
                     deleteAudio(recording.uriString, recording.filePath)
                 }
             }
