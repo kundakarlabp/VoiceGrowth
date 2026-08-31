@@ -76,7 +76,6 @@ class MainActivity : ComponentActivity() {
     private fun afterPermissionCheck() {
         val app = application as VoiceGrowthApplication
         CaptureNotificationManager.showReady(this)
-        if (hasRecordAudioPermission()) app.enqueueAudioProcessing()
         app.enqueueFolderScanNow(force = false)
         settingsViewModel.refreshRuntimeDiagnostics()
     }
