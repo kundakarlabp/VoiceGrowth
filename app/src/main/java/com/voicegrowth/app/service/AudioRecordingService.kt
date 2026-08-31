@@ -18,7 +18,6 @@ import com.voicegrowth.app.VoiceGrowthApplication
 import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.model.RecordingSource
-import com.voicegrowth.app.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +29,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Capture-only recording service.
+ *
+ * VoiceGrowth v2 treats the original recording as the primary artifact. The phone does not run
+ * speech recognition or an LLM before upload. Consult audio is captured as mono AAC-LC in an
+ * MPEG-4 (.m4a) container and queued directly for Drive sync when recording stops.
+ */
 class AudioRecordingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var recorder: MediaRecorder? = null
@@ -69,11 +75,12 @@ class AudioRecordingService : Service() {
                 @Suppress("DEPRECATION") MediaRecorder()
             }
             next.apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(128_000)
-                setAudioSamplingRate(44_100)
+                setAudioChannels(1)
+                setAudioEncodingBitRate(AUDIO_BIT_RATE)
+                setAudioSamplingRate(AUDIO_SAMPLE_RATE)
                 setOutputFile(file.absolutePath)
                 prepare()
                 start()
@@ -117,13 +124,10 @@ class AudioRecordingService : Service() {
         requestTileRefresh()
         val file = outputFile
 
-        if (stoppedCleanly && file != null && file.exists() && file.length() > 0L && duration >= 3L) {
+        if (stoppedCleanly && file != null && file.exists() && file.length() > 0L && duration >= MIN_VALID_SECONDS) {
             val app = application as VoiceGrowthApplication
             scope.launch {
                 val settings = app.container.recordingRepository.settingsFlow.first()
-                val status = if (settings.onlyProcessOver30Sec && duration < 30L) {
-                    ProcessingStatus.SKIPPED_TOO_SHORT
-                } else ProcessingStatus.PENDING
                 val id = app.container.recordingRepository.insertRecording(
                     RecordingEntity(
                         uriString = Uri.fromFile(file).toString(),
@@ -133,15 +137,13 @@ class AudioRecordingService : Service() {
                         durationSeconds = duration,
                         fileSizeBytes = file.length(),
                         recordedAt = startedAt,
-                        status = status
+                        status = ProcessingStatus.WAITING_FOR_SYNC
                     )
                 )
-                if (id > 0 && status == ProcessingStatus.PENDING && settings.autoProcessing) {
-                    app.enqueueAudioProcessing()
-                }
+                if (id > 0L) app.enqueueDriveSync(settings.wifiOnly)
             }
         } else if (file != null) {
-            if (duration < 3L || !stoppedCleanly) file.delete()
+            if (duration < MIN_VALID_SECONDS || !stoppedCleanly) file.delete()
         }
 
         outputFile = null
@@ -171,11 +173,7 @@ class AudioRecordingService : Service() {
 
     override fun onDestroy() {
         val wasRecording = recorder != null
-        if (wasRecording) {
-            // A destroyed recorder cannot be resumed safely. Release resources; keep any incomplete
-            // output out of the processing pipeline rather than pretending a valid recording exists.
-            outputFile?.delete()
-        }
+        if (wasRecording) outputFile?.delete()
         RecordingStateStore.setRecording(this, false)
         requestTileRefresh()
         releaseRecorder()
@@ -193,8 +191,8 @@ class AudioRecordingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val label = when (source) {
-            RecordingSource.MANUAL_DISCUSSION -> "Discussion recording"
-            RecordingSource.VOICE_REFLECTION -> "Voice reflection"
+            RecordingSource.MANUAL_DISCUSSION -> "Consult / discussion"
+            RecordingSource.VOICE_REFLECTION -> "Voice note"
             RecordingSource.CALL_RECORDING -> "Recording"
             RecordingSource.IMPORTED_AUDIO -> "Recording"
         }
@@ -227,6 +225,9 @@ class AudioRecordingService : Service() {
         const val ACTION_STOP_RECORDING = "com.voicegrowth.action.STOP_RECORDING"
         const val EXTRA_SOURCE = "extra_source"
         private const val REQUEST_STOP = 2201
+        private const val AUDIO_SAMPLE_RATE = 48_000
+        private const val AUDIO_BIT_RATE = 160_000
+        private const val MIN_VALID_SECONDS = 3L
         private const val MAX_WAKE_LOCK_MS = 6 * 60 * 60 * 1_000L
     }
 }
