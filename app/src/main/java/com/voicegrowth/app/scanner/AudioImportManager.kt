@@ -24,7 +24,6 @@ object AudioImportManager {
             val repository = app.container.recordingRepository
             val settings = repository.settingsFlow.first()
             var imported = 0
-            var pending = 0
 
             uris.distinctBy(Uri::toString).take(MAX_IMPORTS_PER_ACTION).forEach { uri ->
                 val displayName = queryDisplayName(context, uri)
@@ -47,9 +46,6 @@ object AudioImportManager {
                         fallbackRecordedAt = System.currentTimeMillis(),
                         fallbackSize = destination.length()
                     )
-                    val status = if (settings.onlyProcessOver30Sec && metadata.durationSeconds in 1 until 30L) {
-                        ProcessingStatus.SKIPPED_TOO_SHORT
-                    } else ProcessingStatus.PENDING
 
                     val id = repository.insertRecording(
                         RecordingEntity(
@@ -60,13 +56,10 @@ object AudioImportManager {
                             durationSeconds = metadata.durationSeconds,
                             fileSizeBytes = destination.length(),
                             recordedAt = metadata.recordedAt,
-                            status = status
+                            status = ProcessingStatus.WAITING_FOR_SYNC
                         )
                     )
-                    if (id > 0L) {
-                        imported++
-                        if (status == ProcessingStatus.PENDING) pending++
-                    } else destination.delete()
+                    if (id > 0L) imported++ else destination.delete()
                 } catch (error: CancellationException) {
                     destination.delete()
                     throw error
@@ -76,7 +69,7 @@ object AudioImportManager {
                 }
             }
 
-            if (pending > 0 && settings.autoProcessing) app.enqueueAudioProcessing()
+            if (imported > 0) app.enqueueDriveSync(settings.wifiOnly)
             Result.success(imported)
         } catch (error: CancellationException) {
             throw error
