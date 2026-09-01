@@ -11,11 +11,11 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py ./
+COPY app.py clinical_app.py drive_ingest.py full_app.py mcp_server.py ./
 
 RUN mkdir -p /data/audio
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -fsS http://127.0.0.1:${PORT:-8080}/health || exit 1
 
-CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["sh", "-c", "uvicorn full_app:app --host 0.0.0.0 --port ${PORT:-8080}"]
