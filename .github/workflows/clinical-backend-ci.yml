@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Python compile check
         working-directory: backend
-        run: python -m py_compile app.py clinical_app.py mcp_server.py
+        run: python -m py_compile app.py clinical_app.py drive_ingest.py full_app.py mcp_server.py
       - name: Import and schema smoke test
         working-directory: backend
         env:
@@ -40,6 +40,8 @@ jobs:
           python - <<'PY'
           import app
           import clinical_app
+          import drive_ingest
+          import full_app
           import mcp_server
           assert app.APP_VERSION == '0.1.0'
           expected = {'consults', 'recordings', 'transcript_segments', 'patients', 'encounters', 'consult_links', 'outcome_updates'}
@@ -48,8 +50,10 @@ jobs:
           assert 'patient_name' in schema['properties']
           assert 'recommendations' in schema['properties']
           assert clinical_app.normalize_cr(' CR-12/34 ') == 'CR1234'
+          assert drive_ingest.drive_configured() is False
+          assert full_app.app is app.app
           assert mcp_server.mcp.name == 'voicegrowth-clinical'
-          print('VoiceGrowth Clinical v0.2 schema/MCP smoke test passed')
+          print('VoiceGrowth Clinical v0.2 schema/Drive/MCP smoke test passed')
           PY
       - name: Docker build
         working-directory: backend
