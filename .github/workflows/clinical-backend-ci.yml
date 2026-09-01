@@ -1,0 +1,51 @@
+name: Clinical Backend CI
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/clinical-backend-ci.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/clinical-backend-ci.yml'
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Python compile check
+        working-directory: backend
+        run: python -m py_compile app.py
+      - name: Import and schema smoke test
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:////tmp/voicegrowth-ci.db
+          AUDIO_DIR: /tmp/voicegrowth-audio
+          VOICEGROWTH_API_TOKEN: ci-test-token
+        run: |
+          python - <<'PY'
+          import app
+          assert app.APP_VERSION == '0.1.0'
+          assert 'consults' in app.Base.metadata.tables
+          assert 'recordings' in app.Base.metadata.tables
+          assert 'transcript_segments' in app.Base.metadata.tables
+          schema = app.ConsultRecord.model_json_schema()
+          assert 'patient_name' in schema['properties']
+          assert 'recommendations' in schema['properties']
+          print('VoiceGrowth Clinical schema smoke test passed')
+          PY
+      - name: Docker build
+        working-directory: backend
+        run: docker build -t voicegrowth-clinical-ci .
