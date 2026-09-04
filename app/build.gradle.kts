@@ -24,8 +24,8 @@ android {
         applicationId = "com.voicegrowth.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "2.0.0"
+        versionCode = 10
+        versionName = "2.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -79,6 +79,11 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
+
+    // Zero-cost, fully local speech recognition + speaker diarization.
+    // Native runtime is bundled; model weights are downloaded once into app-private storage.
+    implementation("com.xdcobra.sherpa:sherpa-onnx:1.13.2-1")
+
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }
