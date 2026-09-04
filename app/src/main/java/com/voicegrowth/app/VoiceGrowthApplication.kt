@@ -21,6 +21,7 @@ import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.workers.CleanupWorker
 import com.voicegrowth.app.workers.DriveSyncWorker
 import com.voicegrowth.app.workers.FolderScanWorker
+import com.voicegrowth.app.workers.LocalTranscriptionWorker
 import java.util.concurrent.TimeUnit
 
 class VoiceGrowthApplication : Application() {
@@ -51,6 +52,22 @@ class VoiceGrowthApplication : Application() {
             DriveSyncWorker.WORK_NAME,
             ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
+        )
+    }
+
+    /**
+     * Local ASR is deliberately opportunistic: run on charger + unmetered network so first-time
+     * model installation cannot use paid mobile data and long inference does not drain the phone.
+     */
+    fun enqueueLocalTranscription() {
+        val request = OneTimeWorkRequestBuilder<LocalTranscriptionWorker>()
+            .setConstraints(localAsrConstraints())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            LocalTranscriptionWorker.WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            request,
         )
     }
 
@@ -93,6 +110,13 @@ class VoiceGrowthApplication : Application() {
         const val CHANNEL_RECORDING_ID = "voicegrowth_recording_channel"
         const val CHANNEL_CAPTURE_ID = "voicegrowth_capture_controls_v2"
 
+        private fun localAsrConstraints() = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.UNMETERED)
+            .setRequiresCharging(true)
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .build()
+
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
             val scanRequest = PeriodicWorkRequestBuilder<FolderScanWorker>(15, TimeUnit.MINUTES)
@@ -102,6 +126,16 @@ class VoiceGrowthApplication : Application() {
                 FolderScanWorker.WORK_NAME,
                 ExistingPeriodicWorkPolicy.UPDATE,
                 scanRequest
+            )
+
+            val localAsr = PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(30, TimeUnit.MINUTES)
+                .setConstraints(localAsrConstraints())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
+                .build()
+            workManager.enqueueUniquePeriodicWork(
+                LocalTranscriptionWorker.WORK_NAME + "_periodic",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                localAsr,
             )
 
             val cleanupRequest = PeriodicWorkRequestBuilder<CleanupWorker>(1, TimeUnit.DAYS).build()
