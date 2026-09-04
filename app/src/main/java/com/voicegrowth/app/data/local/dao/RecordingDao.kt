@@ -28,7 +28,7 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings WHERE status IN ('PENDING', 'TRANSCRIBING') ORDER BY recordedAt ASC")
     suspend fun getPendingRecordings(): List<RecordingEntity>
 
-    @Query("SELECT * FROM recordings WHERE transcriptPath IS NULL AND status NOT IN ('SKIPPED_TOO_SHORT') ORDER BY recordedAt ASC LIMIT :limit")
+    @Query("SELECT * FROM recordings WHERE driveAudioFileId IS NOT NULL AND transcriptPath IS NULL AND status NOT IN ('SKIPPED_TOO_SHORT') ORDER BY recordedAt ASC LIMIT :limit")
     suspend fun getLocalTranscriptionCandidates(limit: Int = 3): List<RecordingEntity>
 
     // Include legacy processing states so an upgrade to v2 can upload recordings that were waiting
