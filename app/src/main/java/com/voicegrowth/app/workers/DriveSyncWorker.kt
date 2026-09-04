@@ -17,11 +17,12 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * VoiceGrowth v2 cloud transport.
+ * VoiceGrowth Android transport.
  *
- * Audio capture stays independent from AI. Original audio is archived first. When the zero-cost
- * local-ASR worker later creates a transcript, this same transport uploads that text artifact to
- * VoiceGrowth/Transcripts. No Google OAuth client or paid API is required.
+ * The Android app has one durable responsibility: archive the original audio into the user-selected
+ * private Drive tree. It does not transcribe, diarize, summarize, or upload locally generated
+ * transcript artifacts. The backend transcription bridge discovers the persisted Drive audio by
+ * immutable Drive file ID and performs transcription from those exact bytes.
  */
 class DriveSyncWorker(
     appContext: Context,
@@ -36,7 +37,7 @@ class DriveSyncWorker(
         val repository = app.container.recordingRepository
         val settings = repository.settingsFlow.first()
         val candidates = repository.getSyncCandidates()
-            .filter { it.driveAudioFileId.isNullOrBlank() || (!it.transcriptPath.isNullOrBlank() && it.driveFileId.isNullOrBlank()) }
+            .filter { it.driveAudioFileId.isNullOrBlank() }
         if (candidates.isEmpty()) return Result.success()
 
         val treeUri = settings.driveTreeUri?.takeIf(String::isNotBlank)?.let(Uri::parse)
@@ -45,7 +46,7 @@ class DriveSyncWorker(
                 repository.updateStatus(
                     it.id,
                     ProcessingStatus.WAITING_FOR_SYNC,
-                    "Choose a Google Drive folder in Settings to upload this recording."
+                    "Choose the canonical private VoiceGrowth Drive folder in Settings."
                 )
             }
             return Result.success()
@@ -64,37 +65,22 @@ class DriveSyncWorker(
         }
 
         var retryNeeded = false
-        var archivedNewAudio = false
         for (candidate in candidates) {
             var tempAudio: File? = null
             try {
-                if (candidate.driveAudioFileId.isNullOrBlank()) {
-                    tempAudio = copyAudioToCache(candidate)
-                    val audioResult = driveTree.uploadFile(
-                        treeUri = treeUri,
-                        localFile = tempAudio,
-                        mimeType = mimeTypeFor(candidate.fileName),
-                        recordedAtMillis = candidate.recordedAt,
-                        baseHierarchy = audioHierarchy(settings)
-                    ).getOrThrow()
-                    repository.updateAudioUpload(candidate.id, audioResult.fileId)
-                    archivedNewAudio = true
-                }
+                tempAudio = copyAudioToCache(candidate)
+                val audioResult = driveTree.uploadFile(
+                    treeUri = treeUri,
+                    localFile = tempAudio,
+                    mimeType = mimeTypeFor(candidate.fileName),
+                    recordedAtMillis = candidate.recordedAt,
+                    baseHierarchy = audioHierarchy(settings)
+                ).getOrThrow()
 
-                val transcriptPath = candidate.transcriptPath
-                if (!transcriptPath.isNullOrBlank() && candidate.driveFileId.isNullOrBlank()) {
-                    val transcript = File(transcriptPath)
-                    require(transcript.exists() && transcript.length() > 0L) { "Local transcript is missing or empty" }
-                    val transcriptResult = driveTree.uploadFile(
-                        treeUri = treeUri,
-                        localFile = transcript,
-                        mimeType = "text/markdown",
-                        recordedAtMillis = candidate.recordedAt,
-                        baseHierarchy = transcriptHierarchy(settings),
-                    ).getOrThrow()
-                    repository.updateTranscriptUpload(candidate.id, transcriptResult.fileId, transcriptResult.webViewLink)
+                require(audioResult.fileId.isNotBlank()) {
+                    "Drive upload completed without a stable file ID"
                 }
-
+                repository.updateAudioUpload(candidate.id, audioResult.fileId)
                 repository.updateStatusResetRetry(candidate.id, ProcessingStatus.UPLOADED, null)
             } catch (error: CancellationException) {
                 throw error
@@ -118,8 +104,6 @@ class DriveSyncWorker(
             }
         }
 
-        // Do not make the uploader wait for inference. Schedule the local worker after archival.
-        if (archivedNewAudio) app.enqueueLocalTranscription()
         return if (retryNeeded) Result.retry() else Result.success()
     }
 
@@ -140,26 +124,20 @@ class DriveSyncWorker(
     }
 
     private fun audioHierarchy(settings: AppSettings): String {
-        val base = settings.driveFolderHierarchy.trim('/').ifBlank { "VoiceGrowth/Audio" }
-        return when {
-            base.endsWith("/Transcripts", ignoreCase = true) -> base.substringBeforeLast('/') + "/Audio"
-            base.equals("Transcripts", ignoreCase = true) -> "VoiceGrowth/Audio"
-            else -> base
+        val configured = settings.driveFolderHierarchy.trim('/').ifBlank { "VoiceGrowth/Audio" }
+        val normalized = when {
+            configured.equals("VoiceGrowth", ignoreCase = true) -> "VoiceGrowth/Audio"
+            configured.endsWith("/Transcripts", ignoreCase = true) -> configured.substringBeforeLast('/') + "/Audio"
+            configured.equals("Transcripts", ignoreCase = true) -> "VoiceGrowth/Audio"
+            configured.endsWith("/Audio", ignoreCase = true) -> configured
+            else -> configured
         }
-    }
-
-    private fun transcriptHierarchy(settings: AppSettings): String {
-        val audio = audioHierarchy(settings).trim('/')
-        return if (audio.endsWith("/Audio", ignoreCase = true)) {
-            audio.substringBeforeLast('/') + "/Transcripts"
-        } else {
-            "VoiceGrowth/Transcripts"
-        }
+        return normalized.trim('/').ifBlank { "VoiceGrowth/Audio" }
     }
 
     /**
-     * Copy provider/file audio to a local cache file whose name is also safe to use as the Drive
-     * archive name. Do not reuse patient/caller supplied filenames in the cloud archive.
+     * Copy provider/file audio to a fresh cache object before upload. The cache file is per-recording
+     * and deleted after the upload so no transcription worker can accidentally reuse it.
      */
     private fun copyAudioToCache(recording: RecordingEntity): File {
         val ext = recording.fileName.substringAfterLast('.', "m4a")
@@ -168,9 +146,10 @@ class DriveSyncWorker(
             ?: "m4a"
         val sourceLabel = recording.source.name.lowercase(Locale.US)
         val stamp = synchronized(fileStampFormat) { fileStampFormat.format(Date(recording.recordedAt)) }
-        val target = File(
+        val target = File.createTempFile(
+            "VG_${stamp}_${recording.id}_${sourceLabel}_",
+            ".$ext",
             applicationContext.cacheDir,
-            "VG_${stamp}_${recording.id}_${sourceLabel}.$ext"
         )
         val uri = Uri.parse(recording.uriString)
         when (uri.scheme?.lowercase(Locale.US)) {
