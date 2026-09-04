@@ -16,13 +16,11 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.voicegrowth.app.di.AppContainer
-import com.voicegrowth.app.localai.LocalModelManager
 import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.workers.CleanupWorker
 import com.voicegrowth.app.workers.DriveSyncWorker
 import com.voicegrowth.app.workers.FolderScanWorker
-import com.voicegrowth.app.workers.LocalTranscriptionWorker
 import java.util.concurrent.TimeUnit
 
 class VoiceGrowthApplication : Application() {
@@ -53,23 +51,6 @@ class VoiceGrowthApplication : Application() {
             DriveSyncWorker.WORK_NAME,
             ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
-        )
-    }
-
-    /**
-     * Before the free local models exist, require unmetered data for the one-time model download.
-     * After installation, ASR is entirely offline and runs whenever battery/storage are healthy.
-     */
-    fun enqueueLocalTranscription() {
-        val modelsInstalled = LocalModelManager(this).isInstalled()
-        val request = OneTimeWorkRequestBuilder<LocalTranscriptionWorker>()
-            .setConstraints(localAsrConstraints(modelsInstalled))
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
-            .build()
-        WorkManager.getInstance(this).enqueueUniqueWork(
-            LocalTranscriptionWorker.WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
-            request,
         )
     }
 
@@ -112,14 +93,14 @@ class VoiceGrowthApplication : Application() {
         const val CHANNEL_RECORDING_ID = "voicegrowth_recording_channel"
         const val CHANNEL_CAPTURE_ID = "voicegrowth_capture_controls_v2"
 
-        private fun localAsrConstraints(modelsInstalled: Boolean) = Constraints.Builder()
-            .setRequiredNetworkType(if (modelsInstalled) NetworkType.NOT_REQUIRED else NetworkType.UNMETERED)
-            .setRequiresBatteryNotLow(true)
-            .setRequiresStorageNotLow(true)
-            .build()
-
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
+
+            // Android is intentionally only capture + private Drive transport.
+            // Transcription is performed by the Drive-ID-first backend worker after archival.
+            workManager.cancelUniqueWork("VoiceGrowth_LocalTranscription")
+            workManager.cancelUniqueWork("VoiceGrowth_LocalTranscription_periodic")
+
             val scanRequest = PeriodicWorkRequestBuilder<FolderScanWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build())
                 .build()
@@ -127,17 +108,6 @@ class VoiceGrowthApplication : Application() {
                 FolderScanWorker.WORK_NAME,
                 ExistingPeriodicWorkPolicy.UPDATE,
                 scanRequest
-            )
-
-            val modelsInstalled = LocalModelManager(context).isInstalled()
-            val localAsr = PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(30, TimeUnit.MINUTES)
-                .setConstraints(localAsrConstraints(modelsInstalled))
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
-                .build()
-            workManager.enqueueUniquePeriodicWork(
-                LocalTranscriptionWorker.WORK_NAME + "_periodic",
-                ExistingPeriodicWorkPolicy.UPDATE,
-                localAsr,
             )
 
             val cleanupRequest = PeriodicWorkRequestBuilder<CleanupWorker>(1, TimeUnit.DAYS).build()

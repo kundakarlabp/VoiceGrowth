@@ -80,10 +80,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Zero-cost, fully local speech recognition + speaker diarization.
-    // Native runtime is bundled; model weights are downloaded once into app-private storage.
-    implementation("com.xdcobra.sherpa:sherpa-onnx:1.13.2-1")
-
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }

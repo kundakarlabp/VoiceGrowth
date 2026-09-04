@@ -1,19 +1,54 @@
-# Google Drive ingestion setup
+# VoiceGrowth Drive-first transcription setup
 
-VoiceGrowth Android already archives original audio to Google Drive through Android SAF. VoiceGrowth Clinical can independently read that archive using a **Google service account**. This keeps Google OAuth/login code out of the Android app and avoids embedding Google credentials on the phone.
+VoiceGrowth Android is intentionally a thin capture + Google Drive transport client. The backend transcription bridge reads only canonical audio objects from Drive, transcribes those exact bytes, and writes a provenance-rich transcript back to the canonical `Transcripts` folder. ChatGPT remains the intelligence/orchestration layer after a transcript exists.
 
-## One-time setup
+## Required canonical Drive structure
 
-1. In a Google Cloud project, enable **Google Drive API**.
-2. Create a dedicated service account for VoiceGrowth Clinical.
-3. Create a JSON credential for that service account and store the JSON only in the backend host's secret manager.
-4. In Google Drive, share the parent folder that contains the VoiceGrowth archive with the service account email as **Viewer**. The backend needs read/download access only.
-5. Copy the shared folder's Drive file/folder ID.
-6. Configure backend secrets:
+Configure `GOOGLE_DRIVE_ROOT_FOLDER_ID` to the single VoiceGrowth root containing direct child folders named `Audio` and `Transcripts`.
 
 ```text
-GOOGLE_DRIVE_ROOT_FOLDER_ID=<shared folder ID>
-GOOGLE_SERVICE_ACCOUNT_JSON=<entire service-account JSON as a secret>
+VoiceGrowth/
+  Audio/
+  Transcripts/
+  Summaries/
+  Growth Knowledge & Research/
+  Master/
+  Daily Digests/
+  VoiceGrowth Processing Tracker
+```
+
+If duplicate `Audio` or `Transcripts` folders exist under the configured root, the bridge fails closed instead of guessing. You can explicitly pin the canonical folders with:
+
+```text
+GOOGLE_DRIVE_AUDIO_FOLDER_ID=<canonical Audio folder ID>
+GOOGLE_DRIVE_TRANSCRIPTS_FOLDER_ID=<canonical Transcripts folder ID>
+```
+
+## One-time Google setup
+
+1. Enable Google Drive API in a Google Cloud project.
+2. Create a dedicated VoiceGrowth service account.
+3. Store its JSON credential only in the backend secret manager.
+4. Share only the private VoiceGrowth root with that service account as **Editor**. The worker needs download access to `Audio` and create access in `Transcripts`.
+5. Never put the service-account JSON in Android, GitHub, screenshots, issue comments, or chat.
+
+The backend does not change Drive sharing or permissions.
+
+## Backend environment
+
+Required:
+
+```text
+GOOGLE_DRIVE_ROOT_FOLDER_ID=<canonical VoiceGrowth root ID>
+GOOGLE_SERVICE_ACCOUNT_JSON=<entire service-account JSON secret>
+OPENAI_API_KEY=<server-side OpenAI API key>
+```
+
+Recommended explicit folder pins:
+
+```text
+GOOGLE_DRIVE_AUDIO_FOLDER_ID=<canonical Audio folder ID>
+GOOGLE_DRIVE_TRANSCRIPTS_FOLDER_ID=<canonical Transcripts folder ID>
 ```
 
 Optional:
@@ -22,26 +57,55 @@ Optional:
 GOOGLE_DRIVE_POLL_SECONDS=300
 GOOGLE_DRIVE_MAX_SCAN_ITEMS=5000
 GOOGLE_DRIVE_MAX_DEPTH=6
+OPENAI_TRANSCRIBE_MODEL=gpt-transcribe
+OPENAI_DIARIZE_MODEL=gpt-4o-transcribe-diarize
 ```
 
-Restart the backend. When both required values are present, Drive ingestion starts automatically.
+## Integrity contract
 
-## Behavior
+For every source audio file the bridge:
 
-- Recursively scans below the configured root so `VoiceGrowth/Audio/YYYY/MM-MMM` works without additional configuration.
-- Accepts common audio extensions and audio MIME types.
-- Each Drive file ID is ingested only once.
-- The downloaded processing copy is saved under `AUDIO_DIR` and queued through the same durable transcription pipeline.
-- The Drive file ID and web-view link are retained in the recording record for provenance.
-- For standard VoiceGrowth names such as `VG_20260901_103012_42_manual_discussion.m4a`, the recorded timestamp is parsed from the filename using Asia/Kolkata (+05:30); otherwise Drive creation time is used as the best available recording timestamp.
-- The original Google Drive file is never modified or deleted by the backend; the service-account scope is Drive read-only.
+1. Uses the Google Drive **file ID** as the immutable deduplication key.
+2. Downloads a fresh processing copy from Drive; Android `content://` URIs are never accepted as provenance.
+3. Verifies the downloaded byte count against Drive metadata when size is available.
+4. Computes SHA-256 over the exact downloaded bytes.
+5. Transcribes those bytes.
+6. Writes a Markdown transcript into canonical `Transcripts` with Drive `appProperties` containing:
+   - `sourceDriveFileId`
+   - `sourceSha256`
+   - `sourceBytes`
+   - `voiceGrowthSchema=2`
+7. Embeds the same Drive ID, source link, bytes, SHA-256, timestamps, transcription model and diarization state in the transcript body.
+8. Deletes the temporary server audio copy after the transcript is safely persisted.
 
-## Security
+A transcript is never matched to audio by filename alone.
 
-The service-account JSON is a credential. Never paste it into GitHub, Android source, issue comments, screenshots or documentation.
+## Idempotency
 
-The Drive folder contains identifiable patient audio by design. Share it only with the dedicated backend identity and authorized clinical users, and use deployment/storage controls appropriate for identifiable clinical information.
+Before transcribing, the bridge checks both its local processing record and Drive `appProperties` for an existing transcript with the exact source Drive ID. A source Drive object therefore has at most one canonical worker transcript.
 
-## Why service-account ingestion
+## Responsibility boundaries
 
-This is intentionally different from the old VoiceGrowth Android Drive REST/OAuth implementation. Android remains a thin recorder using the system SAF provider. The server owns the machine-to-machine read credential, which is easier to rotate, audit and revoke without changing the APK.
+### Android
+- Record/import audio.
+- Upload original audio to canonical `Audio`.
+- Persist the returned Drive file ID locally for transport status.
+- No ASR, diarization, transcript generation, summarization, or research logic.
+
+### Transcription bridge
+- Drive discovery by ID.
+- Verified download + SHA-256.
+- OpenAI speech-to-text and optional diarization.
+- Persist canonical transcript with exact source Drive provenance.
+- No clinical interpretation or longitudinal intelligence.
+
+### ChatGPT
+- Reconcile Processing Tracker.
+- Read provenance-valid transcripts.
+- Classify and summarize conservatively.
+- Maintain Learning & Growth, Research Candidates, Master, actions and Daily Digests.
+- Perform literature/registry verification when warranted.
+
+## Privacy
+
+Original audio and patient-identifiable transcripts remain within the private Drive/backend workflow. Use a private backend, encrypted secrets, restricted service-account access, and appropriate clinical data governance. Do not expose patient identifiers in routine notifications.

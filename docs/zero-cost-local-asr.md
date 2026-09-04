@@ -1,11 +1,11 @@
-# VoiceGrowth zero-cost local ASR
+# Deprecated: Android local ASR
 
-VoiceGrowth archives original audio to the user-selected private Drive tree first. Local transcription then runs on-device using sherpa-onnx and open model weights.
+VoiceGrowth no longer performs transcription or diarization on Android.
 
-## Runtime policy
+The prior Sherpa/Whisper-base on-device path was retired because Android SAF identifiers are not stable Google Drive provenance and the local worker introduced duplicate/cached-audio failure modes. Android is now intentionally limited to recording/import and upload of original audio to the canonical private `VoiceGrowth/Audio` tree.
 
-- First-time model installation requires an unmetered network.
-- After all required models are installed, transcription requires no network connection.
-- Routine inference does not require the device to be charging; it only requires battery and storage not to be low.
-- Audio remains private and no paid transcription API is called.
-- The selected Drive root is normalized so selecting an existing `VoiceGrowth` folder does not create `VoiceGrowth/VoiceGrowth/...` nesting.
+Canonical transcription is performed by the backend Drive-ID-first bridge:
+
+`Drive file ID -> fresh Drive download -> byte-count verification -> SHA-256 -> OpenAI transcription -> provenance-rich transcript in VoiceGrowth/Transcripts`
+
+See `backend/DRIVE_SETUP.md` for the active architecture and configuration.
