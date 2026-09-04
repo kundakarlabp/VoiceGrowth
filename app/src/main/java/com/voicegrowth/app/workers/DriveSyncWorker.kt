@@ -19,9 +19,9 @@ import java.util.Locale
 /**
  * VoiceGrowth v2 cloud transport.
  *
- * The original audio is the primary artifact. This worker writes it directly to the user-selected
- * Drive/DocumentsProvider tree. Transcription and medical reasoning deliberately happen outside the
- * Android capture app.
+ * Audio capture stays independent from AI. Original audio is archived first. When the zero-cost
+ * local-ASR worker later creates a transcript, this same transport uploads that text artifact to
+ * VoiceGrowth/Transcripts. No Google OAuth client or paid API is required.
  */
 class DriveSyncWorker(
     appContext: Context,
@@ -36,7 +36,7 @@ class DriveSyncWorker(
         val repository = app.container.recordingRepository
         val settings = repository.settingsFlow.first()
         val candidates = repository.getSyncCandidates()
-            .filter { it.driveAudioFileId.isNullOrBlank() }
+            .filter { it.driveAudioFileId.isNullOrBlank() || (!it.transcriptPath.isNullOrBlank() && it.driveFileId.isNullOrBlank()) }
         if (candidates.isEmpty()) return Result.success()
 
         val treeUri = settings.driveTreeUri?.takeIf(String::isNotBlank)?.let(Uri::parse)
@@ -64,18 +64,37 @@ class DriveSyncWorker(
         }
 
         var retryNeeded = false
+        var archivedNewAudio = false
         for (candidate in candidates) {
             var tempAudio: File? = null
             try {
-                tempAudio = copyAudioToCache(candidate)
-                val result = driveTree.uploadFile(
-                    treeUri = treeUri,
-                    localFile = tempAudio,
-                    mimeType = mimeTypeFor(candidate.fileName),
-                    recordedAtMillis = candidate.recordedAt,
-                    baseHierarchy = audioHierarchy(settings)
-                ).getOrThrow()
-                repository.updateAudioUpload(candidate.id, result.fileId)
+                if (candidate.driveAudioFileId.isNullOrBlank()) {
+                    tempAudio = copyAudioToCache(candidate)
+                    val audioResult = driveTree.uploadFile(
+                        treeUri = treeUri,
+                        localFile = tempAudio,
+                        mimeType = mimeTypeFor(candidate.fileName),
+                        recordedAtMillis = candidate.recordedAt,
+                        baseHierarchy = audioHierarchy(settings)
+                    ).getOrThrow()
+                    repository.updateAudioUpload(candidate.id, audioResult.fileId)
+                    archivedNewAudio = true
+                }
+
+                val transcriptPath = candidate.transcriptPath
+                if (!transcriptPath.isNullOrBlank() && candidate.driveFileId.isNullOrBlank()) {
+                    val transcript = File(transcriptPath)
+                    require(transcript.exists() && transcript.length() > 0L) { "Local transcript is missing or empty" }
+                    val transcriptResult = driveTree.uploadFile(
+                        treeUri = treeUri,
+                        localFile = transcript,
+                        mimeType = "text/markdown",
+                        recordedAtMillis = candidate.recordedAt,
+                        baseHierarchy = transcriptHierarchy(settings),
+                    ).getOrThrow()
+                    repository.updateTranscriptUpload(candidate.id, transcriptResult.fileId, transcriptResult.webViewLink)
+                }
+
                 repository.updateStatusResetRetry(candidate.id, ProcessingStatus.UPLOADED, null)
             } catch (error: CancellationException) {
                 throw error
@@ -98,6 +117,9 @@ class DriveSyncWorker(
                 tempAudio?.delete()
             }
         }
+
+        // Do not make the uploader wait for inference. Schedule the local worker after archival.
+        if (archivedNewAudio) app.enqueueLocalTranscription()
         return if (retryNeeded) Result.retry() else Result.success()
     }
 
@@ -123,6 +145,15 @@ class DriveSyncWorker(
             base.endsWith("/Transcripts", ignoreCase = true) -> base.substringBeforeLast('/') + "/Audio"
             base.equals("Transcripts", ignoreCase = true) -> "VoiceGrowth/Audio"
             else -> base
+        }
+    }
+
+    private fun transcriptHierarchy(settings: AppSettings): String {
+        val audio = audioHierarchy(settings).trim('/')
+        return if (audio.endsWith("/Audio", ignoreCase = true)) {
+            audio.substringBeforeLast('/') + "/Transcripts"
+        } else {
+            "VoiceGrowth/Transcripts"
         }
     }
 
