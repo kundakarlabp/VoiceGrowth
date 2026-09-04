@@ -31,19 +31,20 @@ object AudioPcmDecoder {
                     break
                 }
             }
-            require(audioTrack >= 0 && inputFormat != null) { "No decodable audio track found" }
+            val selectedFormat = requireNotNull(inputFormat) { "No decodable audio track found" }
+            require(audioTrack >= 0) { "No decodable audio track found" }
             extractor.selectTrack(audioTrack)
-            val mime = requireNotNull(inputFormat.getString(MediaFormat.KEY_MIME))
+            val mime = requireNotNull(selectedFormat.getString(MediaFormat.KEY_MIME))
             val codec = MediaCodec.createDecoderByType(mime)
             try {
-                codec.configure(inputFormat, null, null, 0)
+                codec.configure(selectedFormat, null, null, 0)
                 codec.start()
 
                 val output = ByteArrayOutputStream()
                 val info = MediaCodec.BufferInfo()
                 var inputDone = false
                 var outputDone = false
-                var outputFormat = inputFormat
+                var outputFormat: MediaFormat = selectedFormat
 
                 while (!outputDone) {
                     if (!inputDone) {
