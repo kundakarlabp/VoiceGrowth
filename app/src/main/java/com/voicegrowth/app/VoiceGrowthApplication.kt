@@ -16,6 +16,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.voicegrowth.app.di.AppContainer
+import com.voicegrowth.app.localai.LocalModelManager
 import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.workers.CleanupWorker
@@ -56,17 +57,18 @@ class VoiceGrowthApplication : Application() {
     }
 
     /**
-     * Local ASR is deliberately opportunistic: run on charger + unmetered network so first-time
-     * model installation cannot use paid mobile data and long inference does not drain the phone.
+     * Before the free local models exist, require unmetered data for the one-time model download.
+     * After installation, ASR is entirely offline and runs whenever battery/storage are healthy.
      */
     fun enqueueLocalTranscription() {
+        val modelsInstalled = LocalModelManager(this).isInstalled()
         val request = OneTimeWorkRequestBuilder<LocalTranscriptionWorker>()
-            .setConstraints(localAsrConstraints())
+            .setConstraints(localAsrConstraints(modelsInstalled))
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(this).enqueueUniqueWork(
             LocalTranscriptionWorker.WORK_NAME,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
             request,
         )
     }
@@ -110,9 +112,8 @@ class VoiceGrowthApplication : Application() {
         const val CHANNEL_RECORDING_ID = "voicegrowth_recording_channel"
         const val CHANNEL_CAPTURE_ID = "voicegrowth_capture_controls_v2"
 
-        private fun localAsrConstraints() = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.UNMETERED)
-            .setRequiresCharging(true)
+        private fun localAsrConstraints(modelsInstalled: Boolean) = Constraints.Builder()
+            .setRequiredNetworkType(if (modelsInstalled) NetworkType.NOT_REQUIRED else NetworkType.UNMETERED)
             .setRequiresBatteryNotLow(true)
             .setRequiresStorageNotLow(true)
             .build()
@@ -128,8 +129,9 @@ class VoiceGrowthApplication : Application() {
                 scanRequest
             )
 
+            val modelsInstalled = LocalModelManager(context).isInstalled()
             val localAsr = PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(30, TimeUnit.MINUTES)
-                .setConstraints(localAsrConstraints())
+                .setConstraints(localAsrConstraints(modelsInstalled))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
                 .build()
             workManager.enqueueUniquePeriodicWork(
