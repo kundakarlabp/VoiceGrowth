@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import tempfile
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -301,7 +302,7 @@ def record_success(
         if db.scalar(select(Recording.id).where(Recording.drive_audio_file_id == file_id).limit(1)):
             return
         rec = Recording(
-            job_id=f"drive-{file_id}",
+            job_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"voicegrowth-drive:{file_id}")),
             client_recording_id=f"drive:{file_id}",
             original_filename=str(item.get("name") or file_id),
             local_path="",
