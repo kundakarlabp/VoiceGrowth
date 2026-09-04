@@ -28,13 +28,6 @@ data class DriveUploadResult(
     val folderPath: String
 )
 
-/**
- * Google-Drive/cloud sync through Android Storage Access Framework.
- *
- * The user grants a tree URI from the system Files picker. No OAuth client ID, package/SHA-1
- * registration, access token, or embedded Google login is required. The selected DocumentsProvider
- * owns authentication and cloud transport; VoiceGrowth only writes through the persisted tree grant.
- */
 class DriveTreeSyncService(private val context: Context) {
     private val yearFormat = SimpleDateFormat("yyyy", Locale.US)
     private val monthFormat = SimpleDateFormat("MM-MMM", Locale.US)
@@ -79,14 +72,7 @@ class DriveTreeSyncService(private val context: Context) {
         } catch (error: SecurityException) {
             DriveTreeStatus(false, read, write, fallbackName(uri), uri.authority, "Cloud-folder permission was lost. Re-select the folder.")
         } catch (error: Exception) {
-            DriveTreeStatus(
-                false,
-                read,
-                write,
-                fallbackName(uri),
-                uri.authority,
-                "Cloud-folder check failed: ${(error.message ?: error::class.java.simpleName).take(160)}"
-            )
+            DriveTreeStatus(false, read, write, fallbackName(uri), uri.authority, "Cloud-folder check failed: ${(error.message ?: error::class.java.simpleName).take(160)}")
         }
     }
 
@@ -125,7 +111,7 @@ class DriveTreeSyncService(private val context: Context) {
 
             val year = yearFormat.format(Date(recordedAtMillis))
             val month = monthFormat.format(Date(recordedAtMillis))
-            val segments = sanitizeHierarchy(baseHierarchy) + listOf(year, month)
+            val segments = normalizeHierarchyForSelectedRoot(status.displayName, sanitizeHierarchy(baseHierarchy)) + listOf(year, month)
             var parent = root
             for (segment in segments) parent = getOrCreateDirectory(parent, segment)
 
@@ -155,6 +141,12 @@ class DriveTreeSyncService(private val context: Context) {
                 }
             )
         }
+    }
+
+    private fun normalizeHierarchyForSelectedRoot(rootName: String, segments: List<String>): List<String> {
+        if (segments.isEmpty()) return segments
+        val first = segments.first()
+        return if (rootName.equals(first, ignoreCase = true)) segments.drop(1) else segments
     }
 
     private fun getOrCreateDirectory(parent: DocumentFile, rawName: String): DocumentFile {
