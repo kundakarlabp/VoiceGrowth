@@ -213,7 +213,11 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                             recording = recording,
                             onRetry = { viewModel.retryRecording(recording.id) },
                             onDelete = { viewModel.deleteRecording(recording.id) },
-                            onShare = { shareRecording(context, recording) }
+                            onShare = {
+                                runCatching { shareRecording(context, recording) }.onFailure {
+                                    android.widget.Toast.makeText(context, "Cannot share this audio; confirm that the source file is still accessible", android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
                         )
                     }
                 }
