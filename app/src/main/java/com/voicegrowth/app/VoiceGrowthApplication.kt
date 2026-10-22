@@ -16,16 +16,22 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.voicegrowth.app.di.AppContainer
+import com.voicegrowth.app.scanner.InterruptedRecordingRecovery
 import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.service.RecordingStateStore
-import com.voicegrowth.app.workers.CleanupWorker
 import com.voicegrowth.app.workers.DriveSyncWorker
 import com.voicegrowth.app.workers.FolderScanWorker
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class VoiceGrowthApplication : Application() {
     lateinit var container: AppContainer
         private set
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -34,6 +40,15 @@ class VoiceGrowthApplication : Application() {
         createNotificationChannels()
         schedulePeriodicWork(this)
         CaptureNotificationManager.showReady(this)
+        backgroundScope.launch {
+            runCatching {
+                val recovered = InterruptedRecordingRecovery(this@VoiceGrowthApplication, container.recordingRepository).recover()
+                if (recovered > 0) {
+                    val settings = container.recordingRepository.settingsFlow.first()
+                    enqueueDriveSync(settings.wifiOnly)
+                }
+            }
+        }
     }
 
     fun enqueueDriveSync(wifiOnly: Boolean) {
@@ -96,8 +111,7 @@ class VoiceGrowthApplication : Application() {
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
 
-            // Android is intentionally only capture + private Drive transport.
-            // Transcription is performed by the Drive-ID-first backend worker after archival.
+            // Only local capture and approved file archival. No paid/automatic AI pipeline.
             workManager.cancelUniqueWork("VoiceGrowth_LocalTranscription")
             workManager.cancelUniqueWork("VoiceGrowth_LocalTranscription_periodic")
 
@@ -110,12 +124,8 @@ class VoiceGrowthApplication : Application() {
                 scanRequest
             )
 
-            val cleanupRequest = PeriodicWorkRequestBuilder<CleanupWorker>(1, TimeUnit.DAYS).build()
-            workManager.enqueueUniquePeriodicWork(
-                CleanupWorker.WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                cleanupRequest
-            )
+            // Android provider read-back is not Google cloud verification.
+            workManager.cancelUniqueWork("VoiceGrowth_Cleanup")
         }
     }
 }

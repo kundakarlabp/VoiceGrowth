@@ -1,4 +1,4 @@
-# VoiceGrowth Android Capture — v2.0.0
+# VoiceGrowth Android Capture — v2.2.0
 
 VoiceGrowth is a small Android capture and Google Drive transport app for clinical consult discussions, bedside/academic conversations, voice notes, imported audio, and optional OEM call recordings.
 
@@ -76,16 +76,12 @@ The Drive app/provider owns Google authentication and cloud transport. VoiceGrow
 - WorkManager retries transient failures with exponential backoff.
 - Wi-Fi-only upload is optional.
 - Legacy v1 queue states are included as sync candidates so older recordings can still be uploaded after upgrading.
-- A recording becomes `UPLOADED` only after a Drive audio file reference has been stored.
+- A recording becomes `UPLOADED` (shown as **Saved to folder**) only after a deterministic filename is written and SHA-256 read back through the Android DocumentsProvider. Provider-local `content://` URIs are not Google Drive API file IDs.
+- This read-back **does not prove Google's remote cloud has synchronized**; confirm from another device. Retrying uses a stable filename to prevent duplicate objects.
 
 ## Local retention
 
-Automatic local deletion is **off by default**.
-
-If enabled, VoiceGrowth deletes local source audio only after:
-
-1. the configured retention period has elapsed, and
-2. the corresponding Drive audio copy exists.
+Automatic local deletion is **disabled**, including for older installations with the previous preference enabled. The provider only offers local read-back; until independent cloud verification exists, deleting source audio risks permanent loss. Old recordings remain preserved.
 
 ## Removed from v2
 
@@ -104,6 +100,21 @@ These functions are better handled downstream by higher-capability cloud transcr
 ## Privacy boundary
 
 Original audio may contain patient identifiers and is **not de-identified**. Use an access-restricted Drive location and follow applicable institutional requirements for clinical recordings. Downstream transcription/clinical processing should explicitly separate source transcript, normalized transcript, extracted facts, and AI interpretation.
+
+## Safe preview versus production upgrade
+
+GitHub Actions debug artifacts for this branch use application ID
+`com.voicegrowth.app.preview`, displayed as **VoiceGrowth Preview**. They install
+beside an existing `com.voicegrowth.app` without replacing its databases or
+changing existing app preferences. Configure the target folder again in Preview,
+using a **nonclinical** test recording first.
+
+The production release remains `com.voicegrowth.app`. Upgrading it while
+retaining data requires an APK signed with the exact **existing production
+signing certificate**. The `Signed Android Release` workflow supports this
+only when its four release signing secrets are correctly configured.
+Do not uninstall the existing app to make a debug APK fit: local recordings
+can otherwise be lost.
 
 ## Build
 
@@ -136,4 +147,12 @@ GitHub Actions runs the same validation and publishes the debug APK artifact whe
 8. Confirm the original `.m4a` exists under `VoiceGrowth/Audio/YYYY/MM-MMM` and plays clearly.
 9. Repeat once with background noise typical of the ward and once with the phone placed between both speakers.
 
-The downstream transcription/ChatGPT layer should be implemented only after this capture-and-upload path is verified on the real device.
+Analysis is deliberately **on demand** in the existing ChatGPT / ID Professor workflow, not through a paid API or scheduled service. Clinical audio must be handled under NIMS consent and privacy rules.
+
+## Interruption recovery
+
+The app checks `manual_recordings` on launch for playable, unregistered M4A files left by interrupted microphone services. Recoverable audio is queued for archiving. Unplayable files are retained rather than silently deleted. Device tests must confirm this behavior.
+
+## Call recording limits
+
+VoiceGrowth does not record the telephone downlink, bypass Android permissions, or silently start a microphone. Use supported OEM/Google Phone recording **only where enabled and authorized**. Select the user-accessible OEM recordings folder once for periodic import, or use Android's Share action for recordings in restricted provider storage. No phone-call recording is initiated by this app.

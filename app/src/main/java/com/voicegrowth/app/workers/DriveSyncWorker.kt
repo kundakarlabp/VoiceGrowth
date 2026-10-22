@@ -9,6 +9,7 @@ import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.sync.DriveTreeSyncService
+import com.voicegrowth.app.sync.ArchiveFilePolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
@@ -74,6 +75,7 @@ class DriveSyncWorker(
                     localFile = tempAudio,
                     mimeType = mimeTypeFor(candidate.fileName),
                     recordedAtMillis = candidate.recordedAt,
+                    remoteFileName = ArchiveFilePolicy.stableName(candidate.id, candidate.recordedAt, candidate.source.name, candidate.fileName),
                     baseHierarchy = audioHierarchy(settings)
                 ).getOrThrow()
 

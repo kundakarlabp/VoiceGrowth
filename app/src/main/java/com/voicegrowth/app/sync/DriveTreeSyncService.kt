@@ -101,6 +101,7 @@ class DriveTreeSyncService(private val context: Context) {
         localFile: File,
         mimeType: String,
         recordedAtMillis: Long,
+        remoteFileName: String,
         baseHierarchy: String = "VoiceGrowth/Audio"
     ): Result<DriveUploadResult> = withContext(Dispatchers.IO) {
         runCatching {
@@ -111,13 +112,17 @@ class DriveTreeSyncService(private val context: Context) {
 
             val year = yearFormat.format(Date(recordedAtMillis))
             val month = monthFormat.format(Date(recordedAtMillis))
-            val segments = normalizeHierarchyForSelectedRoot(status.displayName, sanitizeHierarchy(baseHierarchy)) + listOf(year, month)
+            val segments = DriveDestinationPolicy.relativeSegments(status.displayName, sanitizeHierarchy(baseHierarchy)) + listOf(year, month)
             var parent = root
             for (segment in segments) parent = getOrCreateDirectory(parent, segment)
 
-            val existing = parent.findFile(localFile.name)?.takeIf { it.isFile }
-            val target = existing ?: parent.createFile(mimeType, localFile.name)
-                ?: error("Cloud provider could not create ${localFile.name}")
+            require(remoteFileName.isNotBlank() && !remoteFileName.contains('/') && !remoteFileName.contains('\\')) {
+                "Unsafe recording filename"
+            }
+            // Stable source-identity filename: retries update one object, not a new random cache name.
+            val existing = parent.findFile(remoteFileName)?.takeIf { it.isFile }
+            val target = existing ?: parent.createFile(mimeType, remoteFileName)
+                ?: error("Cloud provider could not create ${remoteFileName}")
 
             val written = runCatching {
                 context.contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
@@ -131,6 +136,25 @@ class DriveTreeSyncService(private val context: Context) {
                 } ?: error("Cloud provider refused the output stream")
             }
             written.getOrThrow()
+            // SAF DocumentFile URIs are provider-local identifiers, not Google Drive API file IDs.
+            // Read-back verifies the bytes exposed by the selected provider, not server upload completion.
+            fun checksum(input: java.io.InputStream): ByteArray = input.use { stream ->
+                val check = java.security.MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    check.update(buffer, 0, count)
+                }
+                check.digest()
+            }
+            val localHash = checksum(localFile.inputStream())
+            val readBack = context.contentResolver.openInputStream(target.uri)
+                ?: error("Drive provider did not allow read-back of saved recording")
+            val remoteHash = checksum(readBack)
+            require(localHash.contentEquals(remoteHash)) {
+                "Drive provider read-back did not match original audio; will retry"
+            }
 
             DriveUploadResult(
                 fileId = target.uri.toString(),
@@ -141,12 +165,6 @@ class DriveTreeSyncService(private val context: Context) {
                 }
             )
         }
-    }
-
-    private fun normalizeHierarchyForSelectedRoot(rootName: String, segments: List<String>): List<String> {
-        if (segments.isEmpty()) return segments
-        val first = segments.first()
-        return if (rootName.equals(first, ignoreCase = true)) segments.drop(1) else segments
     }
 
     private fun getOrCreateDirectory(parent: DocumentFile, rawName: String): DocumentFile {

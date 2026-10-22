@@ -85,7 +85,7 @@ fun RecordingBottomSheet(onDismiss: () -> Unit) {
     }
 
     ModalBottomSheet(
-        onDismissRequest = { if (recording) stop(); onDismiss() },
+        onDismissRequest = { onDismiss() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
         Column(
@@ -93,6 +93,9 @@ fun RecordingBottomSheet(onDismiss: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(if (recording) "Recording in progress" else "New audio capture", fontWeight = FontWeight.Bold)
+            if (recording) {
+                Text("Recording continues if this panel is closed. Use the notification Stop control when finished.", style = MaterialTheme.typography.bodySmall)
+            }
             Spacer(Modifier.height(16.dp))
             if (!recording) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

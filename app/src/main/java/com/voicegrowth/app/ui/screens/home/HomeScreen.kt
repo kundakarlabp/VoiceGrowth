@@ -1,7 +1,9 @@
 package com.voicegrowth.app.ui.screens.home
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,6 +73,7 @@ import com.voicegrowth.app.ui.screens.recording.RecordingBottomSheet
 import com.voicegrowth.app.ui.theme.StatusFailed
 import com.voicegrowth.app.ui.theme.StatusPending
 import com.voicegrowth.app.ui.theme.StatusUploaded
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -114,7 +118,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                     Column {
                         Text("VoiceGrowth", fontWeight = FontWeight.Bold)
                         Text(
-                            state.settings.driveTreeDisplayName?.let { "Drive: $it" } ?: "Drive folder not linked",
+                            state.settings.driveTreeDisplayName?.let { "Folder: $it" } ?: "Archive folder not linked",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -146,7 +150,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Connect Google Drive", fontWeight = FontWeight.Bold)
-                            Text("Audio remains on the phone until a Drive folder is selected in Settings.", style = MaterialTheme.typography.bodySmall)
+                            Text("Audio remains on the phone until an archive folder is selected in Settings.", style = MaterialTheme.typography.bodySmall)
                         }
                         Button(onClick = onNavigateToSettings) { Text("Setup") }
                     }
@@ -208,7 +212,12 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                         RecordingCard(
                             recording = recording,
                             onRetry = { viewModel.retryRecording(recording.id) },
-                            onDelete = { viewModel.deleteRecording(recording.id) }
+                            onDelete = { viewModel.deleteRecording(recording.id) },
+                            onShare = {
+                                runCatching { shareRecording(context, recording) }.onFailure {
+                                    android.widget.Toast.makeText(context, "Cannot share this audio; confirm that the source file is still accessible", android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
                         )
                     }
                 }
@@ -226,7 +235,7 @@ private fun StatsDashboard(recordings: List<RecordingEntity>) {
     val failed = recordings.count { it.status == ProcessingStatus.FAILED }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Stat("Waiting", waiting, StatusPending, Modifier.weight(1f))
-        Stat("Drive", uploaded, StatusUploaded, Modifier.weight(1f))
+        Stat("Saved", uploaded, StatusUploaded, Modifier.weight(1f))
         Stat("Failed", failed, StatusFailed, Modifier.weight(1f))
     }
 }
@@ -246,7 +255,7 @@ private fun FilterRow(selected: ProcessingStatus?, onSelect: (ProcessingStatus?)
     val filters = listOf(
         null to "All",
         ProcessingStatus.WAITING_FOR_SYNC to "Waiting",
-        ProcessingStatus.UPLOADED to "Uploaded",
+        ProcessingStatus.UPLOADED to "Saved",
         ProcessingStatus.FAILED to "Failed"
     )
     LazyRow(
@@ -260,11 +269,33 @@ private fun FilterRow(selected: ProcessingStatus?, onSelect: (ProcessingStatus?)
     }
 }
 
+/**
+ * User-initiated Android share sheet. No automatic transmission to ChatGPT or other apps.
+ * FileProvider grants scoped read access for VoiceGrowth-owned recordings.
+ */
+private fun shareRecording(context: Context, recording: RecordingEntity) {
+    val originalUri = Uri.parse(recording.uriString)
+    val safeUri = when (originalUri.scheme) {
+        "file" -> FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", File(recording.filePath)
+        )
+        "content" -> originalUri
+        else -> throw IllegalArgumentException("Unsupported recording URI")
+    }
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "audio/*"
+        putExtra(Intent.EXTRA_STREAM, safeUri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Share approved audio recording"))
+}
+
 @Composable
 private fun RecordingCard(
     recording: RecordingEntity,
     onRetry: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onShare: () -> Unit
 ) {
     val date = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.US) }.format(Date(recording.recordedAt))
     val status = statusPresentation(recording)
@@ -290,6 +321,7 @@ private fun RecordingCard(
                 if (recording.driveAudioFileId.isNullOrBlank()) {
                     IconButton(onClick = onRetry) { Icon(Icons.Default.Refresh, "Retry upload") }
                 }
+                IconButton(onClick = onShare) { Icon(Icons.Default.Share, "Share selected audio") }
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Remove from list") }
             }
         }
@@ -304,7 +336,7 @@ private fun sourceIcon(source: RecordingSource) = when (source) {
 }
 
 private fun statusPresentation(recording: RecordingEntity): Pair<String, Color> = when {
-    !recording.driveAudioFileId.isNullOrBlank() -> "Drive synced" to StatusUploaded
+    !recording.driveAudioFileId.isNullOrBlank() -> "Saved to folder" to StatusUploaded
     recording.status == ProcessingStatus.FAILED -> "Upload failed" to StatusFailed
     else -> "Waiting sync" to StatusPending
 }
