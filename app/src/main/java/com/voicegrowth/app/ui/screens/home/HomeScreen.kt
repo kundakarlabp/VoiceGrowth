@@ -1,7 +1,9 @@
 package com.voicegrowth.app.ui.screens.home
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,6 +73,7 @@ import com.voicegrowth.app.ui.screens.recording.RecordingBottomSheet
 import com.voicegrowth.app.ui.theme.StatusFailed
 import com.voicegrowth.app.ui.theme.StatusPending
 import com.voicegrowth.app.ui.theme.StatusUploaded
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -208,7 +212,8 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                         RecordingCard(
                             recording = recording,
                             onRetry = { viewModel.retryRecording(recording.id) },
-                            onDelete = { viewModel.deleteRecording(recording.id) }
+                            onDelete = { viewModel.deleteRecording(recording.id) },
+                            onShare = { shareRecording(context, recording) }
                         )
                     }
                 }
@@ -260,11 +265,33 @@ private fun FilterRow(selected: ProcessingStatus?, onSelect: (ProcessingStatus?)
     }
 }
 
+/**
+ * User-initiated Android share sheet. No automatic transmission to ChatGPT or other apps.
+ * FileProvider grants scoped read access for VoiceGrowth-owned recordings.
+ */
+private fun shareRecording(context: Context, recording: RecordingEntity) {
+    val originalUri = Uri.parse(recording.uriString)
+    val safeUri = when (originalUri.scheme) {
+        "file" -> FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", File(recording.filePath)
+        )
+        "content" -> originalUri
+        else -> throw IllegalArgumentException("Unsupported recording URI")
+    }
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "audio/*"
+        putExtra(Intent.EXTRA_STREAM, safeUri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Share approved audio recording"))
+}
+
 @Composable
 private fun RecordingCard(
     recording: RecordingEntity,
     onRetry: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onShare: () -> Unit
 ) {
     val date = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.US) }.format(Date(recording.recordedAt))
     val status = statusPresentation(recording)
@@ -290,6 +317,7 @@ private fun RecordingCard(
                 if (recording.driveAudioFileId.isNullOrBlank()) {
                     IconButton(onClick = onRetry) { Icon(Icons.Default.Refresh, "Retry upload") }
                 }
+                IconButton(onClick = onShare) { Icon(Icons.Default.Share, "Share selected audio") }
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Remove from list") }
             }
         }
