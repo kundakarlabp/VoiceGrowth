@@ -143,7 +143,8 @@ class AudioRecordingService : Service() {
                 if (id > 0L) app.enqueueDriveSync(settings.wifiOnly)
             }
         } else if (file != null) {
-            if (duration < MIN_VALID_SECONDS || !stoppedCleanly) file.delete()
+            // Interrupted or failed finalization may still leave recoverable bytes.
+            if (stoppedCleanly && duration < MIN_VALID_SECONDS) file.delete()
         }
 
         outputFile = null
@@ -173,13 +174,14 @@ class AudioRecordingService : Service() {
 
     override fun onDestroy() {
         val wasRecording = recorder != null
-        if (wasRecording) outputFile?.delete()
+        if (wasRecording) runCatching { recorder?.stop() }
+        // Never delete unfinished original audio; recover playable files on next app launch.
         RecordingStateStore.setRecording(this, false)
         requestTileRefresh()
         releaseRecorder()
         releaseWakeLock()
         scope.cancel()
-        if (wasRecording) CaptureNotificationManager.showReady(this, "Recording stopped by Android; tap Record to start again")
+        if (wasRecording) CaptureNotificationManager.showReady(this, "Recording interrupted. Reopen VoiceGrowth to recover playable audio.")
         super.onDestroy()
     }
 
