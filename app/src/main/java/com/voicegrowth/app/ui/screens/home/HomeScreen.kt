@@ -114,7 +114,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                     Column {
                         Text("VoiceGrowth", fontWeight = FontWeight.Bold)
                         Text(
-                            state.settings.driveTreeDisplayName?.let { "Drive: $it" } ?: "Drive folder not linked",
+                            state.settings.driveTreeDisplayName?.let { "Folder: $it" } ?: "Archive folder not linked",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -146,7 +146,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Connect Google Drive", fontWeight = FontWeight.Bold)
-                            Text("Audio remains on the phone until a Drive folder is selected in Settings.", style = MaterialTheme.typography.bodySmall)
+                            Text("Audio remains on the phone until an archive folder is selected in Settings.", style = MaterialTheme.typography.bodySmall)
                         }
                         Button(onClick = onNavigateToSettings) { Text("Setup") }
                     }
@@ -226,7 +226,7 @@ private fun StatsDashboard(recordings: List<RecordingEntity>) {
     val failed = recordings.count { it.status == ProcessingStatus.FAILED }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Stat("Waiting", waiting, StatusPending, Modifier.weight(1f))
-        Stat("Drive", uploaded, StatusUploaded, Modifier.weight(1f))
+        Stat("Saved", uploaded, StatusUploaded, Modifier.weight(1f))
         Stat("Failed", failed, StatusFailed, Modifier.weight(1f))
     }
 }
@@ -246,7 +246,7 @@ private fun FilterRow(selected: ProcessingStatus?, onSelect: (ProcessingStatus?)
     val filters = listOf(
         null to "All",
         ProcessingStatus.WAITING_FOR_SYNC to "Waiting",
-        ProcessingStatus.UPLOADED to "Uploaded",
+        ProcessingStatus.UPLOADED to "Saved",
         ProcessingStatus.FAILED to "Failed"
     )
     LazyRow(
@@ -304,7 +304,7 @@ private fun sourceIcon(source: RecordingSource) = when (source) {
 }
 
 private fun statusPresentation(recording: RecordingEntity): Pair<String, Color> = when {
-    !recording.driveAudioFileId.isNullOrBlank() -> "Drive synced" to StatusUploaded
+    !recording.driveAudioFileId.isNullOrBlank() -> "Saved to folder" to StatusUploaded
     recording.status == ProcessingStatus.FAILED -> "Upload failed" to StatusFailed
     else -> "Waiting sync" to StatusPending
 }
