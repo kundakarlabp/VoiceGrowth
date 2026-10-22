@@ -42,6 +42,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Side-by-side preview; never overwrite an existing signed clinical recording app.
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+        }
         release {
             isMinifyEnabled = false
             isShrinkResources = false
