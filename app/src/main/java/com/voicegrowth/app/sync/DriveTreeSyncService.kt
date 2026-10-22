@@ -112,7 +112,7 @@ class DriveTreeSyncService(private val context: Context) {
 
             val year = yearFormat.format(Date(recordedAtMillis))
             val month = monthFormat.format(Date(recordedAtMillis))
-            val segments = normalizeHierarchyForSelectedRoot(status.displayName, sanitizeHierarchy(baseHierarchy)) + listOf(year, month)
+            val segments = DriveDestinationPolicy.relativeSegments(status.displayName, sanitizeHierarchy(baseHierarchy)) + listOf(year, month)
             var parent = root
             for (segment in segments) parent = getOrCreateDirectory(parent, segment)
 
@@ -164,20 +164,6 @@ class DriveTreeSyncService(private val context: Context) {
                     if (segments.isNotEmpty()) append('/').append(segments.joinToString("/"))
                 }
             )
-        }
-    }
-
-    private fun normalizeHierarchyForSelectedRoot(rootName: String, segments: List<String>): List<String> {
-        if (segments.isEmpty()) return segments
-        val first = segments.first()
-        return when {
-            // The folder picker may point at VoiceGrowth OR directly at its Audio child.
-            rootName.equals("Audio", ignoreCase = true)
-                && segments.size >= 2
-                && segments[0].equals("VoiceGrowth", ignoreCase = true)
-                && segments[1].equals("Audio", ignoreCase = true) -> segments.drop(2)
-            rootName.equals(first, ignoreCase = true) -> segments.drop(1)
-            else -> segments
         }
     }
 
