@@ -74,6 +74,7 @@ class DriveSyncWorker(
                     localFile = tempAudio,
                     mimeType = mimeTypeFor(candidate.fileName),
                     recordedAtMillis = candidate.recordedAt,
+                    remoteFileName = stableDriveName(candidate),
                     baseHierarchy = audioHierarchy(settings)
                 ).getOrThrow()
 
@@ -121,6 +122,15 @@ class DriveSyncWorker(
             repository.recordRetry(candidate.id, ProcessingStatus.WAITING_FOR_SYNC, "Drive sync: $clean")
             true
         }
+    }
+
+    // Stable across retries. Temporary file names must never become the Drive identity.
+    private fun stableDriveName(recording: RecordingEntity): String {
+        val date = synchronized(fileStampFormat) { fileStampFormat.format(Date(recording.recordedAt)) }
+        val extension = recording.fileName.substringAfterLast('.', "m4a")
+            .lowercase(Locale.US)
+            .takeIf { it.matches(Regex("[a-z0-9]{1,8}")) } ?: "m4a"
+        return "VG_${date}_${recording.id}_${recording.source.name.lowercase(Locale.US)}.${extension}"
     }
 
     private fun audioHierarchy(settings: AppSettings): String {
