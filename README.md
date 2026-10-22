@@ -101,6 +101,21 @@ These functions are better handled downstream by higher-capability cloud transcr
 
 Original audio may contain patient identifiers and is **not de-identified**. Use an access-restricted Drive location and follow applicable institutional requirements for clinical recordings. Downstream transcription/clinical processing should explicitly separate source transcript, normalized transcript, extracted facts, and AI interpretation.
 
+## Safe preview versus production upgrade
+
+GitHub Actions debug artifacts for this branch use application ID
+`com.voicegrowth.app.preview`, displayed as **VoiceGrowth Preview**. They install
+beside an existing `com.voicegrowth.app` without replacing its databases or
+changing existing app preferences. Configure the target folder again in Preview,
+using a **nonclinical** test recording first.
+
+The production release remains `com.voicegrowth.app`. Upgrading it while
+retaining data requires an APK signed with the exact **existing production
+signing certificate**. The `Signed Android Release` workflow supports this
+only when its four release signing secrets are correctly configured.
+Do not uninstall the existing app to make a debug APK fit: local recordings
+can otherwise be lost.
+
 ## Build
 
 Requirements:
