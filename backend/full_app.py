@@ -6,5 +6,6 @@ Drive ingestion registers its startup worker on the same FastAPI application.
 
 from clinical_app import app
 import drive_ingest  # noqa: F401,E402
+import recording_dashboard  # noqa: F401,E402
 
 __all__ = ["app"]

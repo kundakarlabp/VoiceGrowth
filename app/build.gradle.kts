@@ -24,8 +24,8 @@ android {
         applicationId = "com.voicegrowth.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "2.1.0"
+        versionCode = 11
+        versionName = "2.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -42,6 +42,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Side-by-side preview; never overwrite an existing signed clinical recording app.
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+        }
         release {
             isMinifyEnabled = false
             isShrinkResources = false

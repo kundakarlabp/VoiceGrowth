@@ -27,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -143,7 +142,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                                 color = if (it.usable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
                         }
-                        Text("Destination: VoiceGrowth/Audio/YYYY/MM-MMM", style = MaterialTheme.typography.bodySmall)
+                        Text("Destination: VoiceGrowth/Audio/YYYY/MM-MMM (or YYYY/MM-MMM when Audio is selected). Provider read-back checked; remote cloud confirmation is separate.", style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { driveFolderPicker.launch(Uri.parse(settings.driveTreeUri)) }) { Text("Change folder") }
                             OutlinedButton(onClick = { viewModel.refreshDriveTreeStatus(testWrite = true) }) { Text("Test & sync") }
@@ -186,27 +185,18 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
             }
             Toggle(
                 "Automatically scan linked call folder",
-                "Periodic WorkManager scans discover completed OEM recordings and queue them for Drive.",
+                "WorkManager periodically scans the explicitly selected native call-recording folder. It cannot record calls itself or bypass restricted phone storage.",
                 settings.autoProcessing,
                 viewModel::setAutoProcessing
             )
 
-            SectionTitle("Local retention")
-            Toggle(
-                "Delete local audio after upload",
-                "Off by default. If enabled, source audio is deleted only after the Drive copy exists and the retention period has elapsed.",
-                settings.deleteSourceAudioEnabled,
-                viewModel::setDeleteSourceAudioEnabled
-            )
+            SectionTitle("Local audio protection")
             OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Retention: ${settings.deleteLocalAudioDays} day(s)", fontWeight = FontWeight.SemiBold)
-                    Slider(
-                        value = settings.deleteLocalAudioDays.toFloat(),
-                        onValueChange = { viewModel.setDeleteLocalAudioDays(it.toInt()) },
-                        valueRange = 1f..30f,
-                        steps = 28,
-                        enabled = settings.deleteSourceAudioEnabled
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Automatic deletion disabled", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Original audio is retained on this phone. An Android provider read-back is not proof that Google Drive completed cloud synchronization. Check from a second device before manually clearing local recordings.",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }

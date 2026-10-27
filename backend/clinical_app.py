@@ -470,7 +470,9 @@ body{{font-family:system-ui,sans-serif;margin:24px;background:#f7f7f7;color:#111
 th,td{{border-bottom:1px solid #ddd;padding:8px;text-align:left;vertical-align:top;font-size:13px}} th{{position:sticky;top:0;background:#eee}}
 input{{padding:9px;width:min(420px,80vw)}} button{{padding:9px 14px}} .wrap{{overflow:auto;max-height:70vh;border:1px solid #ddd}}
 </style></head><body>
-<h1>VoiceGrowth Clinical</h1><form method='get'><input name='q' value='{safe_q}' placeholder='Name, CR, department, diagnosis'><button>Search</button></form>
+<h1>VoiceGrowth Clinical</h1>
+<p><a href='/dashboard/recordings'>Recordings &amp; transcripts (includes cases awaiting transcription or extraction)</a></p>
+<form method='get'><input name='q' value='{safe_q}' placeholder='Name, CR, department, diagnosis'><button>Search</button></form>
 <div class='cards'><div class='card'><b>{total}</b><br>Total consults</div><div class='card'><b>{patients}</b><br>Patients linked</div><div class='card'><b>{verified}</b><br>Verified</div><div class='card'><b>{pending_jobs}</b><br>Processing</div></div>
 <div class='wrap'><table><thead><tr><th>ID</th><th>Patient</th><th>CR</th><th>Date</th><th>Department</th><th>Consult for</th><th>ID diagnosis</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div>
 <p>Operational dashboard contains identifiable clinical data. Keep access restricted.</p></body></html>"""

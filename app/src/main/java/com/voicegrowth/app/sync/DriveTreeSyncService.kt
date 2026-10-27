@@ -32,6 +32,10 @@ class DriveTreeSyncService(private val context: Context) {
     private val yearFormat = SimpleDateFormat("yyyy", Locale.US)
     private val monthFormat = SimpleDateFormat("MM-MMM", Locale.US)
 
+    // Reuse a resolved provider directory across uploads in this process. Some cloud
+    // DocumentsProviders delay making freshly created children visible to listFiles().
+    private val directoryCache = mutableMapOf<String, DocumentFile>()
+
     fun persistPermission(uri: Uri): Result<Unit> = runCatching {
         context.contentResolver.takePersistableUriPermission(
             uri,
@@ -101,6 +105,7 @@ class DriveTreeSyncService(private val context: Context) {
         localFile: File,
         mimeType: String,
         recordedAtMillis: Long,
+        remoteFileName: String,
         baseHierarchy: String = "VoiceGrowth/Audio"
     ): Result<DriveUploadResult> = withContext(Dispatchers.IO) {
         runCatching {
@@ -111,13 +116,47 @@ class DriveTreeSyncService(private val context: Context) {
 
             val year = yearFormat.format(Date(recordedAtMillis))
             val month = monthFormat.format(Date(recordedAtMillis))
-            val segments = normalizeHierarchyForSelectedRoot(status.displayName, sanitizeHierarchy(baseHierarchy)) + listOf(year, month)
+            val segments = DriveDestinationPolicy.relativeSegments(status.displayName, sanitizeHierarchy(baseHierarchy)) + listOf(year, month)
             var parent = root
             for (segment in segments) parent = getOrCreateDirectory(parent, segment)
 
-            val existing = parent.findFile(localFile.name)?.takeIf { it.isFile }
-            val target = existing ?: parent.createFile(mimeType, localFile.name)
-                ?: error("Cloud provider could not create ${localFile.name}")
+            require(remoteFileName.isNotBlank() && !remoteFileName.contains('/') && !remoteFileName.contains('\\')) {
+                "Unsafe recording filename"
+            }
+            // Stable source-identity filename: retries update one object, not a new random cache name.
+
+            // Match the immutable source bytes before deciding whether to create/write.
+            // Retried uploads must never overwrite unrelated audio with a colliding name.
+            val localHash = sha256(localFile.inputStream())
+            val sameName = parent.listFiles()
+                .filter { it.isFile && it.name == remoteFileName }
+                .sortedBy { it.uri.toString() }
+
+            val emptyHash = sha256(java.io.ByteArrayInputStream(byteArrayOf()))
+            var hasDifferentNonemptyAudio = false
+            for (candidate in sameName) {
+                val existingHash = context.contentResolver.openInputStream(candidate.uri)
+                    ?.let(::sha256) ?: error("Cannot inspect existing Drive-provider audio")
+                if (!existingHash.contentEquals(emptyHash)) hasDifferentNonemptyAudio = true
+                if (localHash.contentEquals(existingHash)) {
+                    return@runCatching DriveUploadResult(
+                        fileId = candidate.uri.toString(),
+                        webViewLink = null,
+                        folderPath = archivePath(status.displayName, segments)
+                    )
+                }
+            }
+            // A zero-byte object from an interrupted create can be safely resumed.
+            // A non-empty different object is NEVER overwritten.
+            require(!hasDifferentNonemptyAudio) {
+                "Filename collision in selected Drive folder; existing recording was preserved"
+            }
+            require(sameName.size <= 1) {
+                "Multiple partial files have the same name; resolve duplicates in Drive"
+            }
+            val target = sameName.firstOrNull()
+                ?: parent.createFile(mimeType, remoteFileName)
+                ?: error("Cloud provider could not create ${remoteFileName}")
 
             val written = runCatching {
                 context.contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
@@ -131,32 +170,61 @@ class DriveTreeSyncService(private val context: Context) {
                 } ?: error("Cloud provider refused the output stream")
             }
             written.getOrThrow()
+            // This checks the bytes exposed by Android's provider, not remote Google
+            // Drive synchronization. Never treat a content:// URI as a Google file ID.
+            val readBack = context.contentResolver.openInputStream(target.uri)
+                ?: error("Drive provider did not allow read-back of saved recording")
+            require(localHash.contentEquals(sha256(readBack))) {
+                "Drive provider read-back did not match original audio; will retry"
+            }
 
             DriveUploadResult(
                 fileId = target.uri.toString(),
                 webViewLink = null,
-                folderPath = buildString {
-                    append(status.displayName)
-                    if (segments.isNotEmpty()) append('/').append(segments.joinToString("/"))
-                }
+                folderPath = archivePath(status.displayName, segments)
             )
         }
     }
 
-    private fun normalizeHierarchyForSelectedRoot(rootName: String, segments: List<String>): List<String> {
-        if (segments.isEmpty()) return segments
-        val first = segments.first()
-        return if (rootName.equals(first, ignoreCase = true)) segments.drop(1) else segments
+
+    private fun archivePath(rootName: String, segments: List<String>): String =
+        if (segments.isEmpty()) rootName else "$rootName/${segments.joinToString("/")}"
+
+    private fun sha256(input: java.io.InputStream): ByteArray = input.use { stream ->
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = stream.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        digest.digest()
     }
 
     private fun getOrCreateDirectory(parent: DocumentFile, rawName: String): DocumentFile {
         val name = sanitizeSegment(rawName)
-        val existing = parent.findFile(name)
-        if (existing != null) {
-            require(existing.isDirectory) { "A file named '$name' blocks creation of the Drive folder hierarchy" }
-            return existing
+        val key = "${parent.uri}/$name"
+        // A just-created cloud folder may temporarily report exists() == false.
+        // Reuse its URI instead of creating a duplicate during provider index lag.
+        directoryCache[key]?.let { return it }
+
+        fun children() = parent.listFiles().filter { it.name.equals(name, ignoreCase = true) }
+        var matches = children()
+        // A provider may take a moment to list a directory created by an earlier worker.
+        if (matches.isEmpty()) {
+            Thread.sleep(300)
+            matches = children()
         }
-        return parent.createDirectory(name) ?: error("Cloud provider could not create folder '$name'")
+        require(matches.all { it.isDirectory }) {
+            "A file named '$name' blocks creation of the Drive folder hierarchy"
+        }
+        // When historical duplicate folders exist, choose one stable destination.
+        // Do not delete, merge, or relocate existing recordings automatically.
+        val resolved = matches.sortedBy { it.uri.toString() }.firstOrNull()
+            ?: parent.createDirectory(name)
+            ?: error("Cloud provider could not create folder '$name'")
+        directoryCache[key] = resolved
+        return resolved
     }
 
     private fun sanitizeHierarchy(path: String): List<String> {
