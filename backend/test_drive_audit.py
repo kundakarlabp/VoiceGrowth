@@ -1,7 +1,7 @@
 """Deterministic, network-free tests for the read-only cloud audit."""
 import unittest
 
-from drive_audit import AUDIO_EXTENSIONS, FOLDER_MIME, summarize_audit
+from drive_audit import AUDIO_EXTENSIONS, FOLDER_MIME, summarize_audit, select_unique_audio_files
 
 
 class CloudAuditTests(unittest.TestCase):
@@ -43,6 +43,18 @@ class CloudAuditTests(unittest.TestCase):
         self.assertEqual(result["audio_files"], 2)
         self.assertEqual(result["matching_checksum_audio_groups"], [])
         self.assertEqual(result["suspected_audio_groups_without_checksum"], [])
+
+    def test_dedup_uses_verified_md5_and_size_not_names(self):
+        source = [
+            {"id": "later", "name": "A.m4a", "md5Checksum": "abcd", "size": "120", "createdTime": "2026-10-26T12:00:00Z"},
+            {"id": "first", "name": "B.m4a", "md5Checksum": "abcd", "size": "120", "createdTime": "2026-10-26T11:00:00Z"},
+            {"id": "different", "name": "A.m4a", "md5Checksum": "efgh", "size": "120"},
+            {"id": "unknown1", "name": "C.m4a", "size": "100"},
+            {"id": "unknown2", "name": "C.m4a", "size": "100"},
+        ]
+        selected, skipped = select_unique_audio_files(source)
+        self.assertEqual({x["id"] for x in selected}, {"first", "different", "unknown1", "unknown2"})
+        self.assertEqual(skipped, [{"file_id": "later", "canonical_file_id": "first"}])
 
     def test_audio_exts_cover_android_imports(self):
         self.assertTrue({".m4a", ".amr", ".3gp", ".mp3"}.issubset(AUDIO_EXTENSIONS))
