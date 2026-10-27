@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Python compile check
         working-directory: backend
-        run: python -m py_compile app.py clinical_app.py drive_ingest.py drive_audit.py full_app.py mcp_server.py
+        run: python -m py_compile app.py clinical_app.py drive_ingest.py drive_audit.py recording_dashboard.py full_app.py mcp_server.py
       - name: Import and schema smoke test
         working-directory: backend
         env:
