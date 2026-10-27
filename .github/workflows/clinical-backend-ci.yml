@@ -63,7 +63,7 @@ jobs:
           VOICEGROWTH_API_TOKEN: ci-test-token
           DASHBOARD_USERNAME: ci
           DASHBOARD_PASSWORD: ci-password
-        run: python -m unittest -v test_drive_audit test_recording_dashboard
+        run: python -m unittest -v test_drive_audit test_recording_dashboard test_drive_ingest_reconciliation
       - name: Docker build
         working-directory: backend
         run: docker build -t voicegrowth-clinical-ci .
