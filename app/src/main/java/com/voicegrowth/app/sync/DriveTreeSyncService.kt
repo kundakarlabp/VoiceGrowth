@@ -132,9 +132,12 @@ class DriveTreeSyncService(private val context: Context) {
                 .filter { it.isFile && it.name == remoteFileName }
                 .sortedBy { it.uri.toString() }
 
+            val emptyHash = sha256(java.io.ByteArrayInputStream(byteArrayOf()))
+            var hasDifferentNonemptyAudio = false
             for (candidate in sameName) {
                 val existingHash = context.contentResolver.openInputStream(candidate.uri)
                     ?.let(::sha256) ?: error("Cannot inspect existing Drive-provider audio")
+                if (!existingHash.contentEquals(emptyHash)) hasDifferentNonemptyAudio = true
                 if (localHash.contentEquals(existingHash)) {
                     return@runCatching DriveUploadResult(
                         fileId = candidate.uri.toString(),
@@ -145,7 +148,7 @@ class DriveTreeSyncService(private val context: Context) {
             }
             // A zero-byte object from an interrupted create can be safely resumed.
             // A non-empty different object is NEVER overwritten.
-            require(sameName.all { it.length() == 0L }) {
+            require(!hasDifferentNonemptyAudio) {
                 "Filename collision in selected Drive folder; existing recording was preserved"
             }
             require(sameName.size <= 1) {
@@ -201,10 +204,9 @@ class DriveTreeSyncService(private val context: Context) {
     private fun getOrCreateDirectory(parent: DocumentFile, rawName: String): DocumentFile {
         val name = sanitizeSegment(rawName)
         val key = "${parent.uri}/$name"
-        directoryCache[key]?.let { cached ->
-            if (cached.exists() && cached.isDirectory) return cached
-            directoryCache.remove(key)
-        }
+        // A just-created cloud folder may temporarily report exists() == false.
+        // Reuse its URI instead of creating a duplicate during provider index lag.
+        directoryCache[key]?.let { return it }
 
         fun children() = parent.listFiles().filter { it.name.equals(name, ignoreCase = true) }
         var matches = children()
