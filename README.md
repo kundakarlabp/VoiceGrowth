@@ -79,6 +79,41 @@ The Drive app/provider owns Google authentication and cloud transport. VoiceGrow
 - A recording becomes `UPLOADED` (shown as **Saved to folder**) only after a deterministic filename is written and SHA-256 read back through the Android DocumentsProvider. Provider-local `content://` URIs are not Google Drive API file IDs.
 - This read-back **does not prove Google's remote cloud has synchronized**; confirm from another device. Retrying uses a stable filename to prevent duplicate objects.
 
+## Cloud verification, duplicate folders and transcription boundary
+
+**The Android "Provider saved" status is not a Google Drive cloud-confirmation.**
+VoiceGrowth verifies a byte-for-byte SHA-256 read-back from the selected
+Android DocumentsProvider, keeps original audio, and never fabricates a Drive
+REST file ID from an Android `content://` URI.
+
+Existing remote files are compared with the source hash before a retry; the
+app reuses identical bytes and refuses to overwrite different audio. A
+temporary provider cache and deterministic folder choice reduce duplicate
+directory creation, but Android SAF cannot guarantee an atomic create or
+cloud-level idempotency. Do not assume this prevents every provider race.
+
+The authorized backend can inspect remote Drive metadata without model costs:
+
+```sh
+cd backend
+# Service account must already have read permission on this private Audio root.
+export GOOGLE_DRIVE_AUDIO_FOLDER_ID=<canonical Audio folder ID>
+export GOOGLE_SERVICE_ACCOUNT_JSON=<secret stored outside the repository>
+python drive_audit.py
+```
+
+This read-only audit reports repeated sibling folder names and files with
+matching Drive MD5 checksums; it does **not** delete/merge files or confirm
+that every local phone recording was uploaded. For complete end-to-end proof,
+compare this remote inventory against the app's locally queued recording IDs.
+
+Automatic paid backend transcription is **off by default**, even if Drive and
+OpenAI credentials are present. The legacy bridge requires explicit opt-in
+(`VOICEGROWTH_AUTO_TRANSCRIBE=true`) and will incur API costs if used.
+No AI processing is initiated by the Android app. Clinician-authorized,
+on-demand transcription and review require a separately verified pathway.
+Do not expose clinical audio publicly to enable transcription.
+
 ## Local retention
 
 Automatic local deletion is **disabled**, including for older installations with the previous preference enabled. The provider only offers local read-back; until independent cloud verification exists, deleting source audio risks permanent loss. Old recordings remain preserved.
