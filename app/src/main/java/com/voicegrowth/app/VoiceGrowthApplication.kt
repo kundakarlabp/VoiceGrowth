@@ -5,6 +5,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.net.Uri
+import android.util.Log
 import android.os.Build
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -16,12 +18,16 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.voicegrowth.app.di.AppContainer
+import com.voicegrowth.app.data.local.entity.RecordingEntity
+import com.voicegrowth.app.data.model.ProcessingStatus
+import com.voicegrowth.app.data.model.RecordingSource
 import com.voicegrowth.app.scanner.InterruptedRecordingRecovery
 import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.workers.DriveSyncWorker
 import com.voicegrowth.app.workers.FolderScanWorker
 import java.util.concurrent.TimeUnit
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +53,38 @@ class VoiceGrowthApplication : Application() {
                     val settings = container.recordingRepository.settingsFlow.first()
                     enqueueDriveSync(settings.wifiOnly)
                 }
+            }
+        }
+    }
+
+    /**
+     * Keep the database insert alive after the foreground recording service stops.
+     * A service-owned coroutine can be cancelled in onDestroy before a recording
+     * enters the sync queue. Recovery on the next launch remains a second safeguard.
+     */
+    fun registerCompletedRecording(
+        file: File,
+        recordedAt: Long,
+        durationSeconds: Long,
+        source: RecordingSource
+    ) {
+        backgroundScope.launch {
+            try {
+                val record = RecordingEntity(
+                    uriString = Uri.fromFile(file).toString(),
+                    fileName = file.name,
+                    filePath = file.absolutePath,
+                    source = source,
+                    durationSeconds = durationSeconds,
+                    fileSizeBytes = file.length(),
+                    recordedAt = recordedAt,
+                    status = ProcessingStatus.WAITING_FOR_SYNC
+                )
+                val id = container.recordingRepository.insertRecording(record)
+                if (id > 0L) enqueueDriveSync(container.recordingRepository.settingsFlow.first().wifiOnly)
+            } catch (error: Exception) {
+                // The source file is retained for InterruptedRecordingRecovery.
+                Log.e("VoiceGrowth", "Recording queue insert failed; original retained", error)
             }
         }
     }
