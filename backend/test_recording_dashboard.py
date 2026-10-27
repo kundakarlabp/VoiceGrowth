@@ -7,10 +7,10 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 import full_app  # noqa: F401 - registers the production routes
-from app import Recording, SessionLocal
+from app import ConsultRecord, Recording, SessionLocal
 from recording_dashboard import (
     TranscriptImport, TranscriptProvenance, import_reviewed_transcript,
-    recording_detail, recording_inventory, recording_review, cloud_audio_inventory,
+    recording_detail, recording_inventory, recording_review, cloud_audio_inventory, import_extracted_consult,
 )
 
 
@@ -76,6 +76,21 @@ class RecordingDashboardTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;not allowed&lt;/script&gt;", document)
         self.assertEqual(response.headers["cache-control"], "no-store, max-age=0")
 
+    def test_structured_import_requires_transcript_and_is_not_verified(self):
+        created = import_reviewed_transcript(self.payload)
+        structured = ConsultRecord(consult_summary="Synthetic learning discussion; no clinical claims.")
+        result = import_extracted_consult(created["recording_id"], structured)
+        self.assertFalse(result["duplicate"])
+        self.assertEqual(result["verification_status"], "ai_extracted")
+        self.assertFalse(result["source_verified_against_drive"])
+        self.assertTrue(recording_detail(created["recording_id"])["has_structured_consult"])
+        second = import_extracted_consult(created["recording_id"], structured)
+        self.assertTrue(second["duplicate"])
+        conflicting = structured.model_copy(update={"consult_summary": "Changed synthetic case"})
+        with self.assertRaises(HTTPException) as err:
+            import_extracted_consult(created["recording_id"], conflicting)
+        self.assertEqual(err.exception.status_code, 409)
+
     def test_cloud_dashboard_fails_closed_without_credentials(self):
         with patch.dict("os.environ", {
             "GOOGLE_DRIVE_AUDIO_FOLDER_ID": "",
@@ -88,7 +103,7 @@ class RecordingDashboardTests(unittest.TestCase):
     def test_protected_routes_exist(self):
         paths = {route.path for route in full_app.app.routes}
         for path in ("/v2/recordings/inventory",
-                     "/v2/recordings/transcripts/import",
+                     "/v2/recordings/transcripts/import", "/v2/recordings/{recording_id}/consult-import",
                      "/dashboard/recordings", "/dashboard/cloud",
                      "/v2/drive/audio-inventory"):
             self.assertIn(path, paths)
