@@ -107,6 +107,20 @@ matching Drive MD5 checksums; it does **not** delete/merge files or confirm
 that every local phone recording was uploaded. For complete end-to-end proof,
 compare this remote inventory against the app's locally queued recording IDs.
 
+### Compare the phone queue with ChatGPT-accessible Drive
+
+Tap **Share sync manifest** on the VoiceGrowth home screen and share its
+`voicegrowth_sync_manifest.json` file directly into an authorized ChatGPT
+conversation. It includes stable remote archive filenames, recording timestamps,
+source sizes and Android provider-save statuses. It excludes audio bytes,
+patient names, access tokens and provider-local URI strings. Imported filenames
+are reduced to safe stable archive names.
+
+ChatGPT can then compare this local manifest against Google Drive's canonical
+Audio folder and identify missing/duplicate remote copies. The manifest
+alone does not certify cloud upload: Drive must be checked independently.
+Do not make the private Drive folder publicly shareable for this purpose.
+
 Automatic paid backend transcription is **off by default**, even if Drive and
 OpenAI credentials are present. The legacy bridge requires explicit opt-in
 (`VOICEGROWTH_AUTO_TRANSCRIBE=true`) and will incur API costs if used.
