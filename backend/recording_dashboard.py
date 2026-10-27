@@ -15,12 +15,33 @@ from typing import Literal
 from fastapi import Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, select
 
-from app import Recording, SessionLocal, app, require_token
+from app import Base, Recording, SessionLocal, app, engine, require_token
 from clinical_app import require_dashboard
 
 DRIVE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{10,200}$")
+
+class TranscriptProvenance(Base):
+    """Persist caller assertions separately from independently verified source data."""
+    __tablename__ = "transcript_provenance"
+
+    recording_id: Mapped[int] = mapped_column(
+        ForeignKey("recordings.id", ondelete="CASCADE"), primary_key=True
+    )
+    drive_file_id: Mapped[str] = mapped_column(String(200))
+    asserted_source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    asserted_source_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    method: Mapped[str] = mapped_column(String(50))
+    source_verified_against_drive: Mapped[bool] = mapped_column(Boolean, default=False)
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+Base.metadata.create_all(engine, tables=[TranscriptProvenance.__table__])
+
 
 
 class TranscriptImport(BaseModel):
@@ -121,6 +142,17 @@ def import_reviewed_transcript(payload: TranscriptImport) -> dict:
                 processed_at=datetime.now(timezone.utc),
             )
             db.add(row)
+        db.flush()
+        provenance = db.get(TranscriptProvenance, row.id)
+        if provenance is None:
+            db.add(TranscriptProvenance(
+                recording_id=row.id,
+                drive_file_id=file_id,
+                asserted_source_sha256=payload.source_sha256.lower() if payload.source_sha256 else None,
+                asserted_source_bytes=payload.source_bytes,
+                method=payload.method,
+                source_verified_against_drive=False,
+            ))
         db.commit()
         db.refresh(row)
         return {
