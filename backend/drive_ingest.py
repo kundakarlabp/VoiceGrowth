@@ -37,6 +37,8 @@ DRIVE_AUDIO_FOLDER_ID = os.getenv("GOOGLE_DRIVE_AUDIO_FOLDER_ID", "").strip()
 DRIVE_TRANSCRIPTS_FOLDER_ID = os.getenv("GOOGLE_DRIVE_TRANSCRIPTS_FOLDER_ID", "").strip()
 SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
 DRIVE_POLL_SECONDS = max(60, int(os.getenv("GOOGLE_DRIVE_POLL_SECONDS", "300")))
+# Never start paid transcription simply because a backend has Drive credentials.
+AUTO_TRANSCRIBE = os.getenv("VOICEGROWTH_AUTO_TRANSCRIBE", "false").lower() == "true"
 DRIVE_MAX_SCAN_ITEMS = max(100, int(os.getenv("GOOGLE_DRIVE_MAX_SCAN_ITEMS", "5000")))
 DRIVE_MAX_DEPTH = max(1, min(10, int(os.getenv("GOOGLE_DRIVE_MAX_DEPTH", "6"))))
 
@@ -412,11 +414,11 @@ _drive_task: asyncio.Task | None = None
 @app.on_event("startup")
 async def start_drive_ingest() -> None:
     global _drive_task
-    if drive_configured():
-        log.info("Drive-ID-first transcription enabled for VoiceGrowth root %s", DRIVE_ROOT_FOLDER_ID)
+    if drive_configured() and AUTO_TRANSCRIBE:
+        log.info("Opt-in automated Drive transcription enabled for VoiceGrowth root %s", DRIVE_ROOT_FOLDER_ID)
         _drive_task = asyncio.create_task(drive_loop())
     else:
-        log.info("Drive transcription disabled; configure GOOGLE_DRIVE_ROOT_FOLDER_ID and GOOGLE_SERVICE_ACCOUNT_JSON")
+        log.info("Automatic Drive transcription disabled (default). Private audio is never sent to a paid model without opt-in.")
 
 
 @app.on_event("shutdown")
