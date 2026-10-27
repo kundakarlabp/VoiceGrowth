@@ -117,7 +117,7 @@ def list_children(service: Any, folder_id: str) -> list[dict[str, Any]]:
             return items
 
 
-def audit_drive(service: Any, audio_root_id: str, max_items: int = 20000) -> dict[str, Any]:
+def audit_drive(service: Any, audio_root_id: str, max_items: int = 20000, include_audio_entries: bool = False) -> dict[str, Any]:
     """Walk only the selected Audio root; refuse silently truncated inventories."""
     assert audio_root_id, "A specific canonical Audio folder ID is required"
     queue = deque([audio_root_id])
@@ -137,6 +137,22 @@ def audit_drive(service: Any, audio_root_id: str, max_items: int = 20000) -> dic
             if child.get("mimeType") == FOLDER_MIME:
                 queue.append(str(child["id"]))
     summary = summarize_audit(items)
+    if include_audio_entries:
+        summary["audio_entries"] = [
+            {
+                "id": str(x["id"]),
+                "name": str(x.get("name") or ""),
+                "size": int(x.get("size") or 0),
+                "parent_id": str(x["parentId"]),
+                "md5_checksum": str(x.get("md5Checksum") or ""),
+                "created_time": str(x.get("createdTime") or ""),
+            }
+            for x in items
+            if x.get("mimeType") != FOLDER_MIME and (
+                str(x.get("mimeType") or "").startswith("audio/") or
+                any(str(x.get("name") or "").casefold().endswith(ext) for ext in AUDIO_EXTENSIONS)
+            )
+        ]
     summary["folders_scanned"] = len(visited)
     summary["items_scanned"] = len(items)
     summary["audio_root_id"] = audio_root_id
