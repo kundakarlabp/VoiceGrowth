@@ -7,6 +7,8 @@ No OpenAI calls, cloud writes, recording deletions or transcription happen here.
 from __future__ import annotations
 
 import html
+import json
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -20,6 +22,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, select
 
 from app import Base, Recording, SessionLocal, app, engine, require_token
 from clinical_app import require_dashboard
+from drive_audit import audit_drive, select_unique_audio_files
 
 DRIVE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{10,200}$")
 
@@ -164,6 +167,109 @@ def import_reviewed_transcript(payload: TranscriptImport) -> dict:
         }
 
 
+
+def _cloud_audio_inventory() -> dict:
+    """Live read-only Google Drive metadata + separately labelled DB evidence."""
+    folder_id = os.getenv("GOOGLE_DRIVE_AUDIO_FOLDER_ID", "").strip()
+    credentials_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if not folder_id or not credentials_json:
+        raise HTTPException(
+            status_code=503,
+            detail="Private Google Drive metadata access is not configured; no cloud inventory was checked"
+        )
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        credentials = service_account.Credentials.from_service_account_info(
+            json.loads(credentials_json),
+            scopes=["https://www.googleapis.com/auth/drive.metadata.readonly"],
+        )
+        service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+        result = audit_drive(service, folder_id, max_items=15000, include_audio_entries=True)
+    except Exception:
+        # Do not reflect service-account secrets or provider stack traces in HTTP.
+        raise HTTPException(
+            status_code=502,
+            detail="Private Drive metadata request failed; audio and dashboard remain unchanged"
+        ) from None
+
+    files = result.pop("audio_entries")
+    _, copies = select_unique_audio_files([
+        {"id": x["id"], "name": x["name"], "size": x["size"],
+         "md5Checksum": x["md5_checksum"], "createdTime": x["created_time"]}
+        for x in files
+    ])
+    duplicate_ids = {x["file_id"] for x in copies}
+    with SessionLocal() as db:
+        registered = db.scalars(
+            select(Recording).where(Recording.drive_audio_file_id.is_not(None))
+        ).all()
+        match = {r.drive_audio_file_id: {
+            "backend_recording_id": r.id,
+            "backend_status": r.status,
+            "transcript_in_backend": bool(r.source_transcript and r.source_transcript.strip()),
+            "structured_consult_in_backend": r.consult is not None,
+        } for r in registered}
+
+        for entry in files:
+            entry["duplicate_checksum_copy"] = entry["id"] in duplicate_ids
+            entry.update(match.get(entry["id"], {
+                "backend_recording_id": None,
+                "backend_status": "not_registered",
+                "transcript_in_backend": False,
+                "structured_consult_in_backend": False,
+            }))
+    result["audio_entries"] = files
+    result["unique_audio_candidates"] = len(files) - len(duplicate_ids)
+    result["backend_transcripts_for_these_files"] = sum(
+        1 for item in files if item["transcript_in_backend"] and not item["duplicate_checksum_copy"]
+    )
+    result["backend_consults_for_these_files"] = sum(
+        1 for item in files if item["structured_consult_in_backend"] and not item["duplicate_checksum_copy"]
+    )
+    result["source"] = "live_google_drive_read_only_metadata_plus_backend_database"
+    result["audio_bytes_downloaded"] = 0
+    result["transcription_models_called"] = 0
+    return result
+
+
+@app.get("/v2/drive/audio-inventory", dependencies=[Depends(require_token)])
+def cloud_audio_inventory() -> dict:
+    return _cloud_audio_inventory()
+
+
+@app.get("/dashboard/cloud", response_class=HTMLResponse)
+def cloud_audio_dashboard(_: str = Depends(require_dashboard)) -> HTMLResponse:
+    try:
+        inventory = _cloud_audio_inventory()
+    except HTTPException as exc:
+        return _page("Drive upload verification",
+                     f"<p>{html.escape(str(exc.detail))}</p>"
+                     "<p>No files have been changed. Backend-only recordings remain "
+                     "available on the Records and transcripts page.</p>")
+    rows = "".join(
+        "<tr>"
+        f"<td>{html.escape(x['name'])}</td><td>{x['size']}</td>"
+        f"<td>{'Duplicate' if x['duplicate_checksum_copy'] else 'Unique candidate'}</td>"
+        f"<td>{'Yes' if x['transcript_in_backend'] else 'No'}</td>"
+        f"<td>{'Yes' if x['structured_consult_in_backend'] else 'No'}</td></tr>"
+        for x in inventory["audio_entries"]
+    )
+    body = f"""
+<p><small>Live Google Drive metadata, checked by a restricted service account.
+This page does not download audio, call GPT, create transcripts or modify files.
+"No" under transcript means NOT PRESENT IN THE BACKEND DATABASE, not proof
+that no other Google Doc transcript exists.</small></p>
+<p><b>{inventory['audio_files']}</b> Drive audio objects;
+<b>{inventory['unique_audio_candidates']}</b> checksum-unique candidates;
+<b>{inventory['backend_transcripts_for_these_files']}</b> backend transcripts;
+<b>{inventory['backend_consults_for_these_files']}</b> structured backend consultations.</p>
+<div class="wrap"><table><thead><tr><th>Drive audio</th><th>Bytes</th>
+<th>Checksum identity</th><th>Backend transcript</th><th>Backend consult</th>
+</tr></thead><tbody>{rows}</tbody></table></div>"""
+    return _page("Drive upload verification", body)
+
+
 def _html_response(document: str) -> HTMLResponse:
     return HTMLResponse(document, headers={
         "Cache-Control": "no-store, max-age=0",
@@ -185,7 +291,8 @@ th{{background:#f4f4f4}}.wrap{{overflow-x:auto}}input,button{{padding:9px}}
 pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f6f6;padding:16px;border:1px solid #ddd}}
 small{{color:#606a77}}.stats{{display:flex;gap:24px;flex-wrap:wrap;margin:12px 0}}
 </style></head><body><nav><a href="/dashboard">Clinical dashboard</a>
-<a href="/dashboard/recordings">Recordings and transcripts</a></nav>
+<a href="/dashboard/recordings">Recordings and transcripts</a>
+<a href="/dashboard/cloud">Live Drive inventory</a></nav>
 <h1>{html.escape(title)}</h1>{body}</body></html>""")
 
 
