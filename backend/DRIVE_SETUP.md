@@ -61,6 +61,28 @@ OPENAI_TRANSCRIBE_MODEL=gpt-transcribe
 OPENAI_DIARIZE_MODEL=gpt-4o-transcribe-diarize
 ```
 
+## Read-only sync audit and safe default
+
+The current Android v2.2 app can confirm only provider-local read-back.
+A provider `content://` reference is not the immutable Drive REST file ID.
+The cloud copy can be independently checked using a backend service account
+without sharing the file publicly:
+
+```sh
+cd backend
+GOOGLE_DRIVE_AUDIO_FOLDER_ID=<canonical Audio folder ID> \
+  GOOGLE_SERVICE_ACCOUNT_JSON='<private secret>' python drive_audit.py
+```
+
+The audit is **read-only** and reports duplicate sibling directories and
+matching Drive checksums without audio download or OpenAI calls. The script
+must be run only in an authorized environment. It does not automatically
+reconcile all phone-local database rows or remove duplicate cloud objects.
+
+Paid automatic transcription is disabled unless
+`VOICEGROWTH_AUTO_TRANSCRIBE=true` is explicitly set. Never enable this
+against patient recordings without an approved privacy, consent and cost plan.
+
 ## Integrity contract
 
 For every source audio file the bridge:
