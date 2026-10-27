@@ -83,6 +83,34 @@ Paid automatic transcription is disabled unless
 `VOICEGROWTH_AUTO_TRANSCRIBE=true` is explicitly set. Never enable this
 against patient recordings without an approved privacy, consent and cost plan.
 
+## Protected clinical review dashboard
+
+Once an authorized backend deployment is running, visit
+`/dashboard/cloud` (live read-only Google Drive metadata scan),
+`/dashboard/recordings` (backend transcripts) or the original
+`/dashboard` (structured clinical consults). The UI requires existing
+`DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`, and JSON APIs require
+`VOICEGROWTH_API_TOKEN`. Never publish tokens or use an unauthenticated
+patient-data dashboard.
+
+In addition to Google service-account JSON, set an explicit private
+`GOOGLE_DRIVE_AUDIO_FOLDER_ID` so duplicate historical directories cannot
+be mistaken for the canonical source. This ID must be verified by Drive
+metadata and the operator; do not embed it in public source files.
+
+Optional, clinician-initiated manual review requires **no paid model**:
+`POST /v2/recordings/transcripts/import` accepts an already reviewed
+transcript and its precise Drive file ID; `POST
+/v2/recordings/{recording_id}/consult-import` accepts validated structured
+`ConsultRecord` JSON. This does not automatically transcribe recordings
+or verify that a user-supplied checksum is correct. The transcription and
+structured clinical extraction stages remain distinct, with review flags.
+
+The legacy paid backend audio-upload worker is also disabled by default.
+Only set `VOICEGROWTH_AUTO_PROCESS_UPLOADS=true` when authorized
+and prepared for API charges. Do not enable either automatic worker for
+clinical audio without institutional approval.
+
 ## Integrity contract
 
 For every source audio file the bridge:
@@ -111,7 +139,7 @@ Before transcribing, the bridge checks both its local processing record and Driv
 ### Android
 - Record/import audio.
 - Upload original audio to canonical `Audio`.
-- Persist the returned Drive file ID locally for transport status.
+- Persist the Android provider `content://` receipt for local transport status; this is **not** the Google Drive REST file ID.
 - No ASR, diarization, transcript generation, summarization, or research logic.
 
 ### Transcription bridge
