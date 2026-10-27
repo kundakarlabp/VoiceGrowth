@@ -165,7 +165,10 @@ def scan_audio_files(service, audio_root_id: str | None = None) -> list[dict[str
 
 def already_ingested(file_id: str) -> bool:
     with SessionLocal() as db:
-        return db.scalar(select(Recording.id).where(Recording.drive_audio_file_id == file_id).limit(1)) is not None
+        row = db.scalar(select(Recording).where(Recording.drive_audio_file_id == file_id).limit(1))
+        # A legacy record may have been marked completed with an empty
+        # transcript after finding only the Drive document metadata.
+        return bool(row and row.source_transcript and row.source_transcript.strip())
 
 
 def find_persisted_transcript(service, transcripts_folder_id: str, source_file_id: str) -> dict[str, Any] | None:
@@ -303,7 +306,13 @@ def record_success(
 ) -> None:
     file_id = str(item["id"])
     with SessionLocal() as db:
-        if db.scalar(select(Recording.id).where(Recording.drive_audio_file_id == file_id).limit(1)):
+        existing = db.scalar(select(Recording).where(Recording.drive_audio_file_id == file_id).limit(1))
+        if existing:
+            if not existing.source_transcript or not existing.source_transcript.strip():
+                existing.source_transcript = source_transcript
+                existing.status = "completed"
+                existing.processed_at = datetime.now(timezone.utc)
+                db.commit()
             return
         rec = Recording(
             job_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"voicegrowth-drive:{file_id}")),
@@ -334,11 +343,45 @@ def record_success(
         db.commit()
 
 
+def parse_persisted_transcript_markdown(markdown: str, expected_drive_id: str) -> str:
+    """Recover generated source text, never infer it from document existence."""
+    sections = markdown.split("## Machine transcript", 1)
+    if len(sections) != 2:
+        raise ValueError("Stored transcript is missing the machine transcript section")
+    if f"- Source Drive file ID: `{expected_drive_id}`" not in sections[0]:
+        raise ValueError("Stored transcript provenance does not match the source Drive file")
+    body = sections[1].lstrip()
+    # Skip the generated caution blockquote, but leave the spoken words intact.
+    if body.startswith("> Machine transcription."):
+        body = body.split("\n\n", 1)[1] if "\n\n" in body else ""
+    text = body.strip()
+    if not text:
+        raise ValueError("Stored transcript contains no source text")
+    return text
+
+
+def read_stored_transcript(service, transcript: dict[str, Any], source_file_id: str) -> str:
+    """Retrieve only the small private Markdown transcript; no model is called."""
+    if transcript.get("mimeType") != "text/markdown":
+        raise RuntimeError("Stored transcript is not raw Markdown; manual reconciliation required")
+    output = io.BytesIO()
+    downloader = MediaIoBaseDownload(output, service.files().get_media(fileId=transcript["id"]),
+                                    chunksize=256 * 1024)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk(num_retries=3)
+        if output.tell() > 2 * 1024 * 1024:
+            raise RuntimeError("Stored transcript exceeds the allowed review size")
+    return parse_persisted_transcript_markdown(output.getvalue().decode("utf-8"), source_file_id)
+
+
 def reconcile_existing_transcript(service, transcripts_folder_id: str, item: dict[str, Any]) -> bool:
-    transcript = find_persisted_transcript(service, transcripts_folder_id, str(item["id"]))
+    file_id = str(item["id"])
+    transcript = find_persisted_transcript(service, transcripts_folder_id, file_id)
     if not transcript:
         return False
-    record_success(item, "", [], transcript)
+    source_text = read_stored_transcript(service, transcript, file_id)
+    record_success(item, source_text, [], transcript)
     return True
 
 
