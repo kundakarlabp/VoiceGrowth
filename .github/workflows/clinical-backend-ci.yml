@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Python compile check
         working-directory: backend
-        run: python -m py_compile app.py clinical_app.py drive_ingest.py full_app.py mcp_server.py
+        run: python -m py_compile app.py clinical_app.py drive_ingest.py drive_audit.py full_app.py mcp_server.py
       - name: Import and schema smoke test
         working-directory: backend
         env:
@@ -55,6 +55,9 @@ jobs:
           assert mcp_server.mcp.name == 'voicegrowth-clinical'
           print('VoiceGrowth Clinical v0.2 schema/Drive/MCP smoke test passed')
           PY
+      - name: Read-only Drive audit tests
+        working-directory: backend
+        run: python -m unittest -v test_drive_audit
       - name: Docker build
         working-directory: backend
         run: docker build -t voicegrowth-clinical-ci .
