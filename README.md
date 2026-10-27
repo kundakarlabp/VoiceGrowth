@@ -76,7 +76,7 @@ The Drive app/provider owns Google authentication and cloud transport. VoiceGrow
 - WorkManager retries transient failures with exponential backoff.
 - Wi-Fi-only upload is optional.
 - Legacy v1 queue states are included as sync candidates so older recordings can still be uploaded after upgrading.
-- A recording becomes `UPLOADED` (shown as **Saved to folder**) only after a deterministic filename is written and SHA-256 read back through the Android DocumentsProvider. Provider-local `content://` URIs are not Google Drive API file IDs.
+- A recording becomes `UPLOADED` (shown as **Provider saved**) only after a deterministic filename is written and SHA-256 read back through the Android DocumentsProvider. Provider-local `content://` URIs are not Google Drive API file IDs.
 - This read-back **does not prove Google's remote cloud has synchronized**; confirm from another device. Retrying uses a stable filename to prevent duplicate objects.
 
 ## Cloud verification, duplicate folders and transcription boundary
@@ -127,6 +127,56 @@ OpenAI credentials are present. The legacy bridge requires explicit opt-in
 No AI processing is initiated by the Android app. Clinician-authorized,
 on-demand transcription and review require a separately verified pathway.
 Do not expose clinical audio publicly to enable transcription.
+
+## End-to-end review: Drive → transcript → clinical discussion
+
+Backend additions register through `full_app:app`:
+
+| Screen / API | Purpose |
+| --- | --- |
+| `/dashboard/cloud` | Protected live **read-only** Drive audio inventory; distinguishes duplicate copies, backend transcripts and structured consults |
+| `/dashboard/recordings` | Protected list of stored recordings, transcript availability and consult extraction |
+| `/dashboard/recordings/{id}` | Readable source transcript and corrected transcript where available, with clinical verification warnings |
+| `GET /v2/drive/audio-inventory` | Bearer-authenticated JSON Drive metadata cross-check |
+| `GET /v2/recordings/inventory` | Bearer-authenticated backend-only recording/transcript status |
+| `POST /v2/recordings/transcripts/import` | User-authorized imported ChatGPT/clinician transcript with exact Drive file ID; provenance is **caller asserted**, not automatically verified |
+| `POST /v2/recordings/{id}/consult-import` | Explicit structured `ConsultRecord` JSON import after a transcript is available; initially `ai_extracted`, not clinically verified |
+
+The live cloud inventory requires the private service account in a running
+backend plus explicit `GOOGLE_DRIVE_AUDIO_FOLDER_ID`; it reads only Google
+metadata and makes **no audio downloads or GPT requests**. A missing backend
+entry does not prove the audio is absent from Drive or a transcript is absent
+from other Google folders.
+
+A transcript imported through an authenticated API is **not automatically
+considered verified** against the original audio or transformed into
+structured patient facts. Conflicting imports return HTTP 409, preserving
+existing text for clinical review. Clinical extraction is an independent
+explicit step with a separately tracked review status.
+
+Example: after a user has **already** reviewed the audio/transcript and
+obtained an authorized backend API token, the body for transcript import is:
+
+```json
+{
+  "drive_file_id": "<actual private Drive file ID>",
+  "source_filename": "VG_YYYYMMDD_HHMMSS_ID_manual_discussion.m4a",
+  "transcript_text": "<verified transcription text>",
+  "method": "clinician_reviewed"
+}
+```
+
+No patient identifiers, audio, tokens, or transcripts should be committed
+to this public repository or GitHub Issues.
+
+The existing `drive_ingest.py` can perform **paid** server-side OpenAI
+transcription only in a private, configured deployment with explicit
+`VOICEGROWTH_AUTO_TRANSCRIBE=true`; `app.py` legacy upload processing
+also requires `VOICEGROWTH_AUTO_PROCESS_UPLOADS=true`.
+Both default to **false**. A ChatGPT subscription does not implicitly give
+the backend API credentials or free unattended speech-to-text processing.
+No deployment, transcription or transcript import has occurred merely by
+merging this code.
 
 ## Local retention
 
@@ -192,7 +242,7 @@ GitHub Actions runs the same validation and publishes the debug APK artifact whe
 4. Record a 60–90 second two-speaker consult-style discussion, including a quieter second speaker.
 5. Lock the screen for part of the recording.
 6. Stop from the notification.
-7. Confirm **Waiting sync → Drive synced**.
+7. Confirm **Waiting sync → Provider saved**, then independently verify Google cloud upload.
 8. Confirm the original `.m4a` exists under `VoiceGrowth/Audio/YYYY/MM-MMM` and plays clearly.
 9. Repeat once with background noise typical of the ward and once with the phone placed between both speakers.
 
