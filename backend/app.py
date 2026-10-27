@@ -29,6 +29,8 @@ AUDIO_DIR = Path(os.getenv("AUDIO_DIR", "/data/audio"))
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 API_TOKEN = os.getenv("VOICEGROWTH_API_TOKEN", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+# Explicit opt-in required for legacy paid processing of uploaded audio.
+AUTO_PROCESS_UPLOADS = os.getenv("VOICEGROWTH_AUTO_PROCESS_UPLOADS", "false").lower() == "true"
 TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-transcribe")
 DIARIZE_MODEL = os.getenv("OPENAI_DIARIZE_MODEL", "gpt-4o-transcribe-diarize")
 REASONING_MODEL = os.getenv("OPENAI_REASONING_MODEL", "gpt-5.6-sol")
@@ -461,7 +463,10 @@ async def startup() -> None:
     with SessionLocal() as db:
         db.query(Recording).filter(Recording.status == "processing").update({Recording.status: "queued"})
         db.commit()
-    worker_task = asyncio.create_task(worker_loop())
+    if AUTO_PROCESS_UPLOADS:
+        worker_task = asyncio.create_task(worker_loop())
+    else:
+        log.info("Paid recording processing disabled until VOICEGROWTH_AUTO_PROCESS_UPLOADS=true")
 
 
 @app.on_event("shutdown")
