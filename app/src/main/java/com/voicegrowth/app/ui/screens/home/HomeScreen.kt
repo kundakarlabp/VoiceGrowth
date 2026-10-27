@@ -43,6 +43,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -67,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.voicegrowth.app.data.local.entity.RecordingEntity
+import com.voicegrowth.app.sync.ArchiveFilePolicy
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.model.RecordingSource
 import com.voicegrowth.app.ui.screens.recording.RecordingBottomSheet
@@ -74,6 +76,8 @@ import com.voicegrowth.app.ui.theme.StatusFailed
 import com.voicegrowth.app.ui.theme.StatusPending
 import com.voicegrowth.app.ui.theme.StatusUploaded
 import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -192,6 +196,20 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
             }
 
             StatsDashboard(state.allRecordings)
+            OutlinedButton(
+                onClick = {
+                    runCatching { shareSyncManifest(context, state.allRecordings) }.onFailure {
+                        android.widget.Toast.makeText(
+                            context, "Unable to export sync manifest", android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                },
+                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Share sync manifest")
+            }
             FilterRow(state.selectedFilter, viewModel::setFilter)
 
             if (state.recordings.isEmpty()) {
@@ -277,6 +295,43 @@ private fun FilterRow(selected: ProcessingStatus?, onSelect: (ProcessingStatus?)
             FilterChip(selected = selected == status, onClick = { onSelect(status) }, label = { Text(label) })
         }
     }
+}
+
+/**
+ * User-initiated, machine-readable reconciliation manifest. No audio bytes,
+ * Android provider account URI, patient metadata, or cloud credentials are sent.
+ * The receiving user can compare stable archive names/sizes against Drive.
+ */
+private fun shareSyncManifest(context: Context, recordings: List<RecordingEntity>) {
+    val rows = JSONArray()
+    recordings.sortedBy { it.recordedAt }.forEach { item ->
+        rows.put(JSONObject().apply {
+            put("recording_id", item.id)
+            put("archive_filename", ArchiveFilePolicy.stableName(
+                item.id, item.recordedAt, item.source.name, item.fileName
+            ))
+            put("recorded_at_unix_ms", item.recordedAt)
+            put("source_size_bytes", item.fileSizeBytes)
+            put("source", item.source.name)
+            put("provider_saved", !item.driveAudioFileId.isNullOrBlank())
+            put("sync_status", item.status.name)
+        })
+    }
+    val payload = JSONObject().apply {
+        put("schema", "voicegrowth.sync-manifest.v1")
+        put("generated_at_unix_ms", System.currentTimeMillis())
+        put("provider_saved_is_cloud_verified", false)
+        put("recordings", rows)
+    }
+    val file = File(context.cacheDir, "voicegrowth_sync_manifest.json")
+    file.writeText(payload.toString(2), Charsets.UTF_8)
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "application/json"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Share VoiceGrowth sync manifest"))
 }
 
 /**
