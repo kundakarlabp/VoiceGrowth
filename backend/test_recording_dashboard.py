@@ -1,5 +1,6 @@
 """Offline test of clinician-authorized transcript import and dashboard review."""
 import uuid
+from unittest.mock import patch
 import unittest
 
 from fastapi import HTTPException
@@ -9,7 +10,7 @@ import full_app  # noqa: F401 - registers the production routes
 from app import Recording, SessionLocal
 from recording_dashboard import (
     TranscriptImport, TranscriptProvenance, import_reviewed_transcript,
-    recording_detail, recording_inventory, recording_review,
+    recording_detail, recording_inventory, recording_review, cloud_audio_inventory,
 )
 
 
@@ -74,6 +75,23 @@ class RecordingDashboardTests(unittest.TestCase):
         self.assertNotIn("<script>not allowed</script>", document)
         self.assertIn("&lt;script&gt;not allowed&lt;/script&gt;", document)
         self.assertEqual(response.headers["cache-control"], "no-store, max-age=0")
+
+    def test_cloud_dashboard_fails_closed_without_credentials(self):
+        with patch.dict("os.environ", {
+            "GOOGLE_DRIVE_AUDIO_FOLDER_ID": "",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "",
+        }):
+            with self.assertRaises(HTTPException) as err:
+                cloud_audio_inventory()
+        self.assertEqual(err.exception.status_code, 503)
+
+    def test_protected_routes_exist(self):
+        paths = {route.path for route in full_app.app.routes}
+        for path in ("/v2/recordings/inventory",
+                     "/v2/recordings/transcripts/import",
+                     "/dashboard/recordings", "/dashboard/cloud",
+                     "/v2/drive/audio-inventory"):
+            self.assertIn(path, paths)
 
     def test_invalid_drive_id_rejected(self):
         altered = self.payload.model_copy(update={"drive_file_id": "../invalid"})
