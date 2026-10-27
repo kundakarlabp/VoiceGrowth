@@ -18,6 +18,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from sqlalchemy import select
 
+from drive_audit import select_unique_audio_files
+
 from app import (
     AUDIO_DIR,
     DIARIZE_MODEL,
@@ -94,7 +96,7 @@ def list_children(service, folder_id: str) -> list[dict[str, Any]]:
         response = service.files().list(
             q=f"'{folder_id}' in parents and trashed = false",
             spaces="drive",
-            fields="nextPageToken, files(id,name,mimeType,createdTime,modifiedTime,size,webViewLink,parents,appProperties)",
+            fields="nextPageToken, files(id,name,mimeType,createdTime,modifiedTime,size,md5Checksum,webViewLink,parents,appProperties)",
             pageSize=1000,
             pageToken=page_token,
             orderBy="createdTime asc",
@@ -384,16 +386,20 @@ def ingest_drive_once() -> dict[str, int]:
     audio_folder_id = resolve_audio_folder_id(service)
     transcripts_folder_id = resolve_transcripts_folder_id(service)
     items = scan_audio_files(service, audio_folder_id)
+    unique_items, identical_copies = select_unique_audio_files(items)
+    if identical_copies:
+        log.warning("Skipping %d matching Drive byte-identical audio copies to prevent repeat transcription charges",
+                    len(identical_copies))
     processed = 0
     failed = 0
-    for item in items:
+    for item in unique_items:
         try:
             if process_drive_audio(service, transcripts_folder_id, item):
                 processed += 1
         except Exception as exc:
             failed += 1
             log.exception("Failed to transcribe Drive file %s: %s", item.get("id"), exc)
-    return {"configured": 1, "discovered": len(items), "processed": processed, "failed": failed}
+    return {"configured": 1, "discovered": len(items), "unique_audio": len(unique_items), "duplicate_copies_skipped": len(identical_copies), "processed": processed, "failed": failed}
 
 
 async def drive_loop() -> None:
