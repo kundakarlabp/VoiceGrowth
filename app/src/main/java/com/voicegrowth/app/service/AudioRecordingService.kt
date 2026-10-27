@@ -7,7 +7,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.MediaRecorder
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -15,15 +14,7 @@ import android.os.SystemClock
 import android.service.quicksettings.TileService
 import androidx.core.app.NotificationCompat
 import com.voicegrowth.app.VoiceGrowthApplication
-import com.voicegrowth.app.data.local.entity.RecordingEntity
-import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.model.RecordingSource
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -37,7 +28,6 @@ import java.util.Locale
  * MPEG-4 (.m4a) container and queued directly for Drive sync when recording stops.
  */
 class AudioRecordingService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var recorder: MediaRecorder? = null
     private var outputFile: File? = null
     private var startedAt = 0L
@@ -125,23 +115,12 @@ class AudioRecordingService : Service() {
         val file = outputFile
 
         if (stoppedCleanly && file != null && file.exists() && file.length() > 0L && duration >= MIN_VALID_SECONDS) {
-            val app = application as VoiceGrowthApplication
-            scope.launch {
-                val settings = app.container.recordingRepository.settingsFlow.first()
-                val id = app.container.recordingRepository.insertRecording(
-                    RecordingEntity(
-                        uriString = Uri.fromFile(file).toString(),
-                        fileName = file.name,
-                        filePath = file.absolutePath,
-                        source = source,
-                        durationSeconds = duration,
-                        fileSizeBytes = file.length(),
-                        recordedAt = startedAt,
-                        status = ProcessingStatus.WAITING_FOR_SYNC
-                    )
-                )
-                if (id > 0L) app.enqueueDriveSync(settings.wifiOnly)
-            }
+            (application as VoiceGrowthApplication).registerCompletedRecording(
+                file = file,
+                recordedAt = startedAt,
+                durationSeconds = duration,
+                source = source
+            )
         } else if (file != null) {
             // Interrupted or failed finalization may still leave recoverable bytes.
             if (stoppedCleanly && duration < MIN_VALID_SECONDS) file.delete()
@@ -180,7 +159,6 @@ class AudioRecordingService : Service() {
         requestTileRefresh()
         releaseRecorder()
         releaseWakeLock()
-        scope.cancel()
         if (wasRecording) CaptureNotificationManager.showReady(this, "Recording interrupted. Reopen VoiceGrowth to recover playable audio.")
         super.onDestroy()
     }
