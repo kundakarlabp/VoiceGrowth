@@ -233,10 +233,20 @@ private fun StatsDashboard(recordings: List<RecordingEntity>) {
     val waiting = recordings.count { it.driveAudioFileId.isNullOrBlank() && it.status != ProcessingStatus.FAILED }
     val uploaded = recordings.count { !it.driveAudioFileId.isNullOrBlank() }
     val failed = recordings.count { it.status == ProcessingStatus.FAILED }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Stat("Waiting", waiting, StatusPending, Modifier.weight(1f))
-        Stat("Saved", uploaded, StatusUploaded, Modifier.weight(1f))
-        Stat("Failed", failed, StatusFailed, Modifier.weight(1f))
+    Column {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Stat("Waiting", waiting, StatusPending, Modifier.weight(1f))
+            Stat("Provider saved", uploaded, StatusUploaded, Modifier.weight(1f))
+            Stat("Failed", failed, StatusFailed, Modifier.weight(1f))
+        }
+        if (uploaded > 0) {
+            Text(
+                "Provider saved means audio bytes were read back on this phone. It does not confirm Google cloud upload or transcription.",
+                modifier = Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -255,7 +265,7 @@ private fun FilterRow(selected: ProcessingStatus?, onSelect: (ProcessingStatus?)
     val filters = listOf(
         null to "All",
         ProcessingStatus.WAITING_FOR_SYNC to "Waiting",
-        ProcessingStatus.UPLOADED to "Saved",
+        ProcessingStatus.UPLOADED to "Provider saved",
         ProcessingStatus.FAILED to "Failed"
     )
     LazyRow(
@@ -336,7 +346,7 @@ private fun sourceIcon(source: RecordingSource) = when (source) {
 }
 
 private fun statusPresentation(recording: RecordingEntity): Pair<String, Color> = when {
-    !recording.driveAudioFileId.isNullOrBlank() -> "Saved to folder" to StatusUploaded
+    !recording.driveAudioFileId.isNullOrBlank() -> "Provider saved" to StatusUploaded
     recording.status == ProcessingStatus.FAILED -> "Upload failed" to StatusFailed
     else -> "Waiting sync" to StatusPending
 }
