@@ -22,6 +22,39 @@ AUDIO_EXTENSIONS = {".m4a", ".mp4", ".mp3", ".wav", ".ogg", ".opus", ".flac", ".
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
 
+
+def select_unique_audio_files(files: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Select one cloud object per *confirmed* MD5+size identity.
+
+    Never merge by name or file size alone. Earliest createdTime and then stable
+    Drive ID choose the representative independently of discovery order.
+    No file is modified or deleted. Unknown checksum objects are all retained.
+    """
+    ordered = sorted(files, key=lambda x: (
+        str(x.get("createdTime") or "9999"), str(x.get("id") or "")
+    ))
+    selected: list[dict[str, Any]] = []
+    duplicates: list[dict[str, str]] = []
+    seen: dict[tuple[str, int], str] = {}
+    for item in ordered:
+        digest = str(item.get("md5Checksum") or "").strip().lower()
+        raw_size = item.get("size")
+        try:
+            size = int(raw_size)
+        except (ValueError, TypeError):
+            size = 0
+        # Empty or missing checksums cannot establish identical audio bytes.
+        if digest and size > 0:
+            key = (digest, size)
+            if key in seen:
+                duplicates.append({"file_id": str(item["id"]),
+                                   "canonical_file_id": seen[key]})
+                continue
+            seen[key] = str(item["id"])
+        selected.append(item)
+    return selected, duplicates
+
+
 def summarize_audit(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Pure summary of Drive metadata; hashless duplicates are only suspected."""
     folders: dict[tuple[str, str], list[str]] = defaultdict(list)
