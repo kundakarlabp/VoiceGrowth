@@ -11,7 +11,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py clinical_app.py drive_ingest.py full_app.py mcp_server.py ./
+COPY app.py clinical_app.py drive_ingest.py drive_audit.py full_app.py mcp_server.py ./
 
 RUN mkdir -p /data/audio
 
