@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, select
 
-from app import Base, Recording, SessionLocal, app, engine, require_token
+from app import Base, Consult, ConsultRecord, Recording, SessionLocal, app, engine, fact_value, require_token
 from clinical_app import require_dashboard
 from drive_audit import audit_drive, select_unique_audio_files
 
@@ -165,6 +165,55 @@ def import_reviewed_transcript(payload: TranscriptImport) -> dict:
             "source_verified_against_drive": False,
             "consult_created": row.consult is not None,
         }
+
+
+
+
+@app.post("/v2/recordings/{recording_id}/consult-import", dependencies=[Depends(require_token)], status_code=201)
+def import_extracted_consult(recording_id: int, payload: ConsultRecord) -> dict:
+    """Clinician-authorized import of ChatGPT-generated structured review.
+
+    Requires a stored source transcript. New records are 'ai_extracted',
+    never automatically clinically verified. Never silently replace edits.
+    No paid model call occurs in this endpoint.
+    """
+    with SessionLocal() as db:
+        rec = db.get(Recording, recording_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        if not rec.source_transcript or not rec.source_transcript.strip():
+            raise HTTPException(status_code=409, detail="Source transcript required before consultation extraction")
+        structured = payload.model_dump(mode="json")
+        existing = db.scalar(select(Consult).where(Consult.recording_id == rec.id).limit(1))
+        if existing is not None:
+            if existing.structured_record == structured:
+                return {"consult_id": existing.id, "duplicate": True,
+                        "verification_status": existing.verification_status}
+            raise HTTPException(status_code=409, detail="Consult already exists; manual reconciliation is required")
+        consult = Consult(
+            recording_id=rec.id,
+            patient_name=fact_value(payload, "patient_name"),
+            cr_number=fact_value(payload, "cr_number"),
+            age=fact_value(payload, "age"),
+            sex=fact_value(payload, "sex"),
+            date_of_admission=fact_value(payload, "date_of_admission"),
+            admitting_department=fact_value(payload, "admitting_department"),
+            ward_unit=fact_value(payload, "ward_unit"),
+            consult_date=fact_value(payload, "consult_date"),
+            consult_for=fact_value(payload, "consult_for"),
+            primary_team_diagnosis=fact_value(payload, "primary_team_diagnosis"),
+            id_working_diagnosis=fact_value(payload, "id_working_diagnosis"),
+            consult_summary=payload.consult_summary,
+            structured_record=structured,
+            verification_status="ai_extracted",
+        )
+        db.add(consult)
+        rec.status = "consult_review_pending"
+        db.commit()
+        db.refresh(consult)
+        return {"consult_id": consult.id, "duplicate": False,
+                "verification_status": consult.verification_status,
+                "source_verified_against_drive": False}
 
 
 
