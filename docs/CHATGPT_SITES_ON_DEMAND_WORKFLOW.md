@@ -20,7 +20,7 @@ Five VoiceGrowth tabs have been added:
 
 Existing `ClinicalCases`, `ResearchLeads`, `Evidence`, `TeachingAssets`, `Projects`, `Career` and `ActionsDecisions` tabs remain in use. **VG Consults is the canonical structured consult record; ClinicalCases contains a shorter deidentified teaching abstraction only when needed.** Do not count these as separate patient events.
 
-The 11 distinct October 26, 2026 recordings have been entered in `VG Inbox` with `TranscriptionStatus=Not started`, `ContentClass=Unclassified`, `ClinicalReviewStatus=Pending`. A known duplicate Drive file is recorded in its original row rather than adding a twelfth recording. These are **audio files**, not confirmed clinical consultations.
+Fourteen distinct recordings have been entered in `VG Inbox`: 11 dated October 26, 2026; two dated October 27; and one dated October 22. All have `TranscriptionStatus=Not started`, `ContentClass=Unclassified`, `ClinicalReviewStatus=Pending`. A known duplicate Drive copy of one October 26 recording is linked in its original row rather than counted as another recording. These are **audio files**, not confirmed clinical consultations.
 
 ## Clinician-invoked review SOP (one conversation at a time)
 
