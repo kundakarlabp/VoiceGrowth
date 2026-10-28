@@ -16,9 +16,7 @@ active path** and its automatic paid processing flags default to false.
 Do not deploy it solely to make ChatGPT access Drive.
 
 The private registry now includes `VG Summary`, `VG Inbox`, `VG Consults`,
-`VG Clinical Events` and `VG Data Dictionary`. Eleven verified Drive audio
-objects from October 26 are indexed in the Inbox, with transcription correctly
-marked **Not started**. Do not classify them as real clinical consultations
+`VG Clinical Events` and `VG Data Dictionary`. Fourteen distinct Drive audio objects from October 22, 26 and 27 are indexed in the Inbox (11 on October 26, two on October 27, and one on October 22), with transcription correctly marked **Not started**. Do not classify them as real clinical consultations
 until their audio has been transcribed and reviewed.
 
 **Implementation specification and daily manual review protocol:**
