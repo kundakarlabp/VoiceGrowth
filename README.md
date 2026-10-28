@@ -1,5 +1,38 @@
 # VoiceGrowth Android Capture — v2.2.0
 
+## Active workflow (October 2026): ChatGPT on demand, no external backend
+
+**Source of truth:** VoiceGrowth Android captures originals → user's private Google
+Drive stores them → clinician explicitly asks ChatGPT/Work to transcribe/review
+a selected recording → deidentified **KBP Intelligence Dashboard & Registry**
+Google Sheet stores curated consultations and longitudinal clinical events →
+a workspace-private **ChatGPT Site** displays the approved clinical-academic
+dashboard when the user creates it in Work.
+
+No Railway, no scheduled Drive polling, no background ASR/LLM, no paid API
+service or second automatic dashboard is required or desired for this workflow.
+The legacy `backend/` code remains for reference but is **not part of the
+active path** and its automatic paid processing flags default to false.
+Do not deploy it solely to make ChatGPT access Drive.
+
+The private registry now includes `VG Summary`, `VG Inbox`, `VG Consults`,
+`VG Clinical Events` and `VG Data Dictionary`. Eleven verified Drive audio
+objects from October 26 are indexed in the Inbox, with transcription correctly
+marked **Not started**. Do not classify them as real clinical consultations
+until their audio has been transcribed and reviewed.
+
+**Implementation specification and daily manual review protocol:**
+[ChatGPT Sites + on-demand VoiceGrowth](docs/CHATGPT_SITES_ON_DEMAND_WORKFLOW.md).
+
+A successful Drive archive is **not** a transcript. This ChatGPT
+conversation's Google Drive connector can list/read private Drive metadata
+and download recordings, but a separate supported speech-to-text path must
+actually process the audio before any transcript or consultation facts are
+entered. Creating or deploying a ChatGPT Site requires ChatGPT Work/Sites;
+a GitHub commit alone cannot launch the Site. All source audio and sensitive
+identifiers stay private; a Sites dashboard must remain workspace-private.
+
+
 VoiceGrowth is a small Android capture and Google Drive transport app for clinical consult discussions, bedside/academic conversations, voice notes, imported audio, and optional OEM call recordings.
 
 ## v2 design
