@@ -18,6 +18,9 @@ data class AppSettings(
     val driveTreeDisplayName: String? = null,
     val clinicalPrivacyMode: Boolean = true,
     val aiEnabled: Boolean = false,
+    // Separate opt-in keys: legacy v1 AI settings must never activate clinical ASR.
+    val offlineTranscriptionEnabled: Boolean = false,
+    val offlineWhisperModelPath: String? = null,
     val aiModelPath: String? = null,
     val aiModelDisplayName: String? = null,
     val aiPreferredBackend: String = "gpu",
