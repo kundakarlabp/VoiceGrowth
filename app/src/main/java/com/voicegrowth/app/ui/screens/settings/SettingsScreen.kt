@@ -205,7 +205,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(
-                        if (settings.aiModelPath.isNullOrBlank()) "Model: not installed"
+                        if (settings.offlineWhisperModelPath.isNullOrBlank()) "Model: not installed"
                         else "Model: installed locally",
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -215,10 +215,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                     Toggle(
                         "Automatically transcribe short recordings",
                         "Pilot: disabled by default; review clinical terms, doses and CR numbers against audio.",
-                        settings.aiEnabled,
+                        settings.offlineTranscriptionEnabled,
                         viewModel::setOfflineTranscription
                     )
-                    if (settings.aiEnabled) {
+                    if (settings.offlineTranscriptionEnabled) {
                         OutlinedButton(onClick = viewModel::runOfflineTranscriptionNow) {
                             Text("Process pending short recordings")
                         }
