@@ -30,10 +30,10 @@ internal object LocalAudioWavDecoder {
                 "Recording exceeds the short-audio pilot limit"
             }
             val mime = requireNotNull(format.getString(MediaFormat.KEY_MIME))
-            codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0)
-            codec.start()
-            val decoder = codec
+            val decoder = MediaCodec.createDecoderByType(mime)
+            codec = decoder
+            decoder.configure(format, null, null, 0)
+            decoder.start()
             val info = MediaCodec.BufferInfo()
             var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
