@@ -32,6 +32,8 @@ class SettingsDataStore(private val context: Context) {
         val DRIVE_TREE_DISPLAY_NAME = stringPreferencesKey("drive_tree_display_name")
         val CLINICAL_PRIVACY_MODE = booleanPreferencesKey("clinical_privacy_mode")
         val AI_ENABLED = booleanPreferencesKey("ai_enabled")
+        val OFFLINE_ASR_ENABLED = booleanPreferencesKey("offline_asr_enabled_v2_pilot")
+        val OFFLINE_WHISPER_MODEL = stringPreferencesKey("offline_whisper_model_path_v2_pilot")
         val AI_MODEL_PATH = stringPreferencesKey("ai_model_path")
         val AI_MODEL_DISPLAY_NAME = stringPreferencesKey("ai_model_display_name")
         val AI_PREFERRED_BACKEND = stringPreferencesKey("ai_preferred_backend")
@@ -58,6 +60,8 @@ class SettingsDataStore(private val context: Context) {
                 driveTreeDisplayName = preferences[PreferencesKeys.DRIVE_TREE_DISPLAY_NAME],
                 clinicalPrivacyMode = preferences[PreferencesKeys.CLINICAL_PRIVACY_MODE] ?: true,
                 aiEnabled = preferences[PreferencesKeys.AI_ENABLED] ?: false,
+                offlineTranscriptionEnabled = preferences[PreferencesKeys.OFFLINE_ASR_ENABLED] ?: false,
+                offlineWhisperModelPath = preferences[PreferencesKeys.OFFLINE_WHISPER_MODEL],
                 aiModelPath = preferences[PreferencesKeys.AI_MODEL_PATH],
                 aiModelDisplayName = preferences[PreferencesKeys.AI_MODEL_DISPLAY_NAME],
                 aiPreferredBackend = preferences[PreferencesKeys.AI_PREFERRED_BACKEND] ?: "gpu",
@@ -79,6 +83,10 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setDriveFolderHierarchy(path: String) = update(PreferencesKeys.DRIVE_FOLDER_HIERARCHY, path)
     suspend fun setClinicalPrivacyMode(enabled: Boolean) = update(PreferencesKeys.CLINICAL_PRIVACY_MODE, enabled)
     suspend fun setAiEnabled(enabled: Boolean) = update(PreferencesKeys.AI_ENABLED, enabled)
+    suspend fun setOfflineTranscriptionEnabled(enabled: Boolean) =
+        update(PreferencesKeys.OFFLINE_ASR_ENABLED, enabled)
+    suspend fun setOfflineWhisperModelPath(path: String) =
+        update(PreferencesKeys.OFFLINE_WHISPER_MODEL, path)
     suspend fun setAiPreferredBackend(backend: String) = update(PreferencesKeys.AI_PREFERRED_BACKEND, backend)
     suspend fun setDailyDigestEnabled(enabled: Boolean) = update(PreferencesKeys.DAILY_DIGEST_ENABLED, enabled)
 
