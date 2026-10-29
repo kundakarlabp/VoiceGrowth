@@ -60,7 +60,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     staging.delete()
                 }
             }
-            store.setAiModel(target.absolutePath, "Local Whisper GGML")
+            store.setOfflineWhisperModelPath(target.absolutePath)
             _modelMessage.value = "Model installed locally. Enable automatic transcription when ready."
         } catch (error: Exception) {
             _modelMessage.value = "Model import failed: ${(error.message ?: error.javaClass.simpleName).take(180)}"
@@ -68,17 +68,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setOfflineTranscription(enabled: Boolean) = viewModelScope.launch {
-        if (enabled && settingsState.value.aiModelPath?.let(::File)?.isFile != true) {
+        if (enabled && settingsState.value.offlineWhisperModelPath?.let(::File)?.isFile != true) {
             _modelMessage.value = "Import a multilingual Whisper model first."
             return@launch
         }
-        store.setAiEnabled(enabled)
+        store.setOfflineTranscriptionEnabled(enabled)
         _modelMessage.value = if (enabled) "Offline ASR enabled; runs while charging." else "Offline ASR disabled."
         if (enabled) app.enqueueLocalTranscription()
     }
 
     fun runOfflineTranscriptionNow() = viewModelScope.launch {
-        if (settingsState.value.aiEnabled) {
+        if (settingsState.value.offlineTranscriptionEnabled) {
             app.enqueueLocalTranscription()
             _modelMessage.value = "Short recordings queued for offline processing while charging."
         } else _modelMessage.value = "Enable offline ASR after installing a model."
