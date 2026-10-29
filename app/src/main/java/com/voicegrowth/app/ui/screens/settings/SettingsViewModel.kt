@@ -79,6 +79,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun runOfflineTranscriptionNow() = viewModelScope.launch {
         if (settingsState.value.offlineTranscriptionEnabled) {
+            // Explicit retry clears only local-ASR errors; never touches Drive upload errors.
+            app.container.recordingRepository.clearLocalAsrFailures()
             app.enqueueLocalTranscription()
             _modelMessage.value = "Short recordings queued for offline processing while charging."
         } else _modelMessage.value = "Enable offline ASR after installing a model."
