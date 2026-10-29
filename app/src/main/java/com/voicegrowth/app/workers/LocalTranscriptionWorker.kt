@@ -29,9 +29,9 @@ class LocalTranscriptionWorker(
         val app = applicationContext as VoiceGrowthApplication
         val repository = app.container.recordingRepository
         val settings = repository.settingsFlow.first()
-        if (!settings.aiEnabled) return Result.success()
+        if (!settings.offlineTranscriptionEnabled) return Result.success()
 
-        val model = settings.aiModelPath?.let(::File)
+        val model = settings.offlineWhisperModelPath?.let(::File)
             ?.takeIf { it.isFile && it.length() > 50_000_000L &&
                 it.canonicalPath.startsWith(File(applicationContext.filesDir, "models").canonicalPath + File.separator) }
             ?: return Result.success() // first-use model import still required
