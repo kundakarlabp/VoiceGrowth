@@ -26,6 +26,7 @@ import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.workers.DriveSyncWorker
 import com.voicegrowth.app.workers.FolderScanWorker
+import com.voicegrowth.app.workers.LocalTranscriptionWorker
 import java.util.concurrent.TimeUnit
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -107,6 +108,23 @@ class VoiceGrowthApplication : Application() {
         )
     }
 
+    /** Charging-only, opt-in offline ASR. No network connectivity needed. */
+    fun enqueueLocalTranscription() {
+        val request = OneTimeWorkRequestBuilder<LocalTranscriptionWorker>()
+            .setConstraints(Constraints.Builder()
+                .setRequiresCharging(true)
+                .setRequiresBatteryNotLow(true)
+                .setRequiresStorageNotLow(true)
+                .build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            LocalTranscriptionWorker.WORK_NAME,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            request
+        )
+    }
+
     fun enqueueFolderScanNow(force: Boolean = true) {
         val request = OneTimeWorkRequestBuilder<FolderScanWorker>()
             .setInputData(workDataOf(FolderScanWorker.INPUT_FORCE_SCAN to force))
@@ -149,9 +167,15 @@ class VoiceGrowthApplication : Application() {
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
 
-            // Only local capture and approved file archival. No paid/automatic AI pipeline.
-            workManager.cancelUniqueWork("VoiceGrowth_LocalTranscription")
-            workManager.cancelUniqueWork("VoiceGrowth_LocalTranscription_periodic")
+            // Offline inference is opt-in and waits for charging. Disabled by default.
+            workManager.enqueueUniquePeriodicWork(
+                "VoiceGrowth_LocalTranscription_periodic",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(6, TimeUnit.HOURS)
+                    .setConstraints(Constraints.Builder().setRequiresCharging(true)
+                        .setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())
+                    .build()
+            )
 
             val scanRequest = PeriodicWorkRequestBuilder<FolderScanWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build())
