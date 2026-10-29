@@ -55,16 +55,18 @@ class LocalTranscriptionWorker(
         var tempAudio: File? = null
         var tempWav: File? = null
         try {
-            tempAudio = File.createTempFile("vg-asr-source-", ".m4a", applicationContext.cacheDir)
+            val inputAudio = File.createTempFile("vg-asr-source-", ".m4a", applicationContext.cacheDir)
+            tempAudio = inputAudio
             val sourceUri = Uri.parse(candidate.uriString)
             applicationContext.contentResolver.openInputStream(sourceUri)?.use { input ->
-                tempAudio.outputStream().use(input::copyTo)
+                inputAudio.outputStream().use(input::copyTo)
             } ?: error("Original recording no longer readable")
-            tempWav = File.createTempFile("vg-asr-decoded-", ".wav", applicationContext.cacheDir)
-            LocalAudioWavDecoder.convert(tempAudio, tempWav)
+            val wavAudio = File.createTempFile("vg-asr-decoded-", ".wav", applicationContext.cacheDir)
+            tempWav = wavAudio
+            LocalAudioWavDecoder.convert(inputAudio, wavAudio)
             val engine = Whisper.loadModel(applicationContext, model.absolutePath)
             val output = try {
-                Whisper.transcribe(engine, tempWav.absolutePath, WhisperConfig(language = "auto"))
+                Whisper.transcribe(engine, wavAudio.absolutePath, WhisperConfig(language = "auto"))
             } finally {
                 Whisper.releaseModel(engine)
             }
