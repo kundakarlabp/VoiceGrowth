@@ -22,6 +22,7 @@ class RecordingRepository(
     suspend fun getPendingRecordings(): List<RecordingEntity> = dao.getPendingRecordings()
     suspend fun getLocalTranscriptionCandidates(limit: Int = 3): List<RecordingEntity> =
         dao.getLocalTranscriptionCandidates(limit)
+    suspend fun getTranscriptSyncCandidates(): List<RecordingEntity> = dao.getTranscriptSyncCandidates()
     suspend fun getSyncCandidates(): List<RecordingEntity> = dao.getSyncCandidates()
     suspend fun getCompletedOlderThan(timestamp: Long): List<RecordingEntity> = dao.getCompletedOlderThan(timestamp)
 
