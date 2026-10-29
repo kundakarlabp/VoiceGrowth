@@ -66,7 +66,7 @@ function scanVoiceGrowthTranscriptMetadata() {
       while (files.hasNext()) {
         const file = files.next();
         const name = file.getName();
-        if (!/^VG_[a-zA-Z0-9_]+ - Transcript\\.md$/.test(name)) continue;
+        if (!/^VG_[a-zA-Z0-9_]+ - Transcript\.md$/.test(name)) continue;
         const existing = transcripts.get(name) || [];
         existing.push(file.getId());
         transcripts.set(name, existing);
@@ -75,7 +75,7 @@ function scanVoiceGrowthTranscriptMetadata() {
 
     let changed = 0, ambiguous = 0;
     for (const [name, ids] of transcripts.entries()) {
-      const basename = name.replace(/ - Transcript\\.md$/, '');
+      const basename = name.replace(/ - Transcript\.md$/, '');
       const candidates = ['m4a','wav','mp3','aac','ogg','flac']
         .flatMap(ext => byAudioName.get(basename + '.' + ext) || []);
       // Fail closed on duplicate audio rows, duplicate cloud transcript copies.
