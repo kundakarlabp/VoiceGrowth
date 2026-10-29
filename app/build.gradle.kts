@@ -18,7 +18,7 @@ val releaseSigningConfigured = listOf(
 
 android {
     namespace = "com.voicegrowth.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.voicegrowth.app"
@@ -81,6 +81,8 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.work.runtime.ktx)
+    // Pilot only: local file ASR, no Gemini/OpenAI API or background server.
+    implementation("dev.ffmpegkit-maintained:whisper-android:1.0.0")
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

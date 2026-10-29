@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as VoiceGrowthApplication
@@ -31,6 +32,59 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _driveTreeStatus = MutableStateFlow<DriveTreeStatus?>(null)
     val driveTreeStatus: StateFlow<DriveTreeStatus?> = _driveTreeStatus.asStateFlow()
+
+    private val _modelMessage = MutableStateFlow<String?>(null)
+    val modelMessage: StateFlow<String?> = _modelMessage.asStateFlow()
+
+    /** A one-time import keeps the model app-private; never uploads its bytes. */
+    fun importOfflineModel(uri: Uri) = viewModelScope.launch {
+        _modelMessage.value = "Importing model into private app storage…"
+        try {
+            val target = withContext(Dispatchers.IO) {
+                val modelDir = File(app.filesDir, "models").apply { mkdirs() }
+                val staging = File.createTempFile("model-", ".partial", modelDir)
+                try {
+                    app.contentResolver.openInputStream(uri)?.use { input ->
+                        staging.outputStream().use { input.copyTo(it) }
+                    } ?: error("Could not read selected model")
+                    require(staging.length() > 50_000_000L) {
+                        "Select a multilingual ggml Whisper .bin model, not an audio file"
+                    }
+                    val destination = File(modelDir, "ggml-voicegrowth.bin")
+                    java.nio.file.Files.move(
+                        staging.toPath(), destination.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                    )
+                    destination
+                } finally {
+                    staging.delete()
+                }
+            }
+            store.setOfflineWhisperModelPath(target.absolutePath)
+            _modelMessage.value = "Model installed locally. Enable automatic transcription when ready."
+        } catch (error: Exception) {
+            _modelMessage.value = "Model import failed: ${(error.message ?: error.javaClass.simpleName).take(180)}"
+        }
+    }
+
+    fun setOfflineTranscription(enabled: Boolean) = viewModelScope.launch {
+        if (enabled && settingsState.value.offlineWhisperModelPath?.let(::File)?.isFile != true) {
+            _modelMessage.value = "Import a multilingual Whisper model first."
+            return@launch
+        }
+        store.setOfflineTranscriptionEnabled(enabled)
+        _modelMessage.value = if (enabled) "Offline ASR enabled; runs while charging." else "Offline ASR disabled."
+        if (enabled) app.enqueueLocalTranscription()
+    }
+
+    fun runOfflineTranscriptionNow() = viewModelScope.launch {
+        if (settingsState.value.offlineTranscriptionEnabled) {
+            // Explicit retry clears only local-ASR errors; never touches Drive upload errors.
+            app.container.recordingRepository.clearLocalAsrFailures()
+            app.enqueueLocalTranscription()
+            _modelMessage.value = "Short recordings queued for offline processing while charging."
+        } else _modelMessage.value = "Enable offline ASR after installing a model."
+    }
 
     val settingsState: StateFlow<AppSettings> = store.settingsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())

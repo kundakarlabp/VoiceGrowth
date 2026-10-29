@@ -106,6 +106,8 @@ class DriveSyncWorker(
             }
         }
 
+        // ASR is opt-in, runs only while charging, and never delays audio upload.
+        app.enqueueLocalTranscription()
         return if (retryNeeded) Result.retry() else Result.success()
     }
 

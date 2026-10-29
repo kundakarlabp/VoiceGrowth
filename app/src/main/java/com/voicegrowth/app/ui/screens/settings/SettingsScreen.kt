@@ -46,6 +46,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
     val settings by viewModel.settingsState.collectAsState()
     val folderStatus by viewModel.folderStatus.collectAsState()
     val driveTreeStatus by viewModel.driveTreeStatus.collectAsState()
+    val modelMessage by viewModel.modelMessage.collectAsState()
     val context = LocalContext.current
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
@@ -53,6 +54,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
     }
     val driveFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) viewModel.configureDriveTree(uri)
+    }
+
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) viewModel.importOfflineModel(uri)
     }
 
     Scaffold(topBar = {
@@ -189,6 +194,38 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 settings.autoProcessing,
                 viewModel::setAutoProcessing
             )
+
+            SectionTitle("Offline transcription pilot")
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("On-device Whisper", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Optional and free; no paid API. First import a multilingual ggml Whisper model (.bin, typically 142 MB+). " +
+                            "The app processes recordings up to 3 minutes while charging, then saves draft transcripts beside Audio in private Drive.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        if (settings.offlineWhisperModelPath.isNullOrBlank()) "Model: not installed"
+                        else "Model: installed locally",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedButton(onClick = { modelPicker.launch(arrayOf("*/*")) }) {
+                        Text("Import offline model")
+                    }
+                    Toggle(
+                        "Automatically transcribe short recordings",
+                        "Pilot: disabled by default; review clinical terms, doses and CR numbers against audio.",
+                        settings.offlineTranscriptionEnabled,
+                        viewModel::setOfflineTranscription
+                    )
+                    if (settings.offlineTranscriptionEnabled) {
+                        OutlinedButton(onClick = viewModel::runOfflineTranscriptionNow) {
+                            Text("Process pending short recordings")
+                        }
+                    }
+                    modelMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
 
             SectionTitle("Local audio protection")
             OutlinedCard(Modifier.fillMaxWidth()) {
