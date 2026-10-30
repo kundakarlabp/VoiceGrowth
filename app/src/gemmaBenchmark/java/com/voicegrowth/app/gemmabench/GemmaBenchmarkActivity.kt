@@ -156,7 +156,7 @@ class GemmaBenchmarkActivity : ComponentActivity() {
                                         Content.Text("Transcribe the recorded Telugu/English speech verbatim. " +
                                             "Keep medical wording. Never infer missing words, CR numbers or doses. " +
                                             "Do not summarize. Output only the transcript.")
-                                    )).text
+                                    )).toString()
                                 }
                             }
                         }
