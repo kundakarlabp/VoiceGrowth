@@ -39,6 +39,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.voicegrowth.app.service.CaptureNotificationManager
+import com.voicegrowth.app.integration.GalleryHandoff
+import android.widget.Toast
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -224,6 +226,46 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                         }
                     }
                     modelMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+
+            SectionTitle("Google AI Edge Gallery")
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Open installed Gemma Audio Scribe", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Gallery runs its downloaded Gemma model locally. Open Audio Scribe below, " +
+                            "then manually select a short audio clip from Android Files or your approved private Drive folder. " +
+                            "Android does not allow VoiceGrowth to control Gallery inference or read Gallery's private model.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedButton(onClick = {
+                        if (!GalleryHandoff.openAudioScribe(context)) {
+                            Toast.makeText(context, "Google AI Edge Gallery unavailable. Install or update Gallery.", Toast.LENGTH_LONG).show()
+                        }
+                    }) {
+                        Text("Open Gallery Audio Scribe")
+                    }
+                    OutlinedButton(onClick = {
+                        if (!GalleryHandoff.openGalleryModels(context)) {
+                            Toast.makeText(context, "Google AI Edge Gallery unavailable.", Toast.LENGTH_LONG).show()
+                        }
+                    }) {
+                        Text("Manage Gallery models")
+                    }
+                    OutlinedButton(onClick = {
+                        if (!GalleryHandoff.openVoiceGrowthBenchmark(context)) {
+                            Toast.makeText(context, "Install the optional VoiceGrowth Gemma benchmark APK from GitHub Actions.", Toast.LENGTH_LONG).show()
+                        }
+                    }) {
+                        Text("Open Whisper vs Gemma benchmark")
+                    }
+                    Text(
+                        "Limits: Gallery accepts short clips (typically up to 30 seconds), " +
+                            "does not automatically return transcripts to VoiceGrowth, and cannot share its private model files. " +
+                            "Choose only synthetic or institutionally authorized audio. No clinical record is updated.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
 

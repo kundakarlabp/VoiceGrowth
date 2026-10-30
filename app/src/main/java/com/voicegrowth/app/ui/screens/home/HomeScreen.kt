@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.sync.ArchiveFilePolicy
+import com.voicegrowth.app.integration.GalleryHandoff
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.model.RecordingSource
 import com.voicegrowth.app.ui.screens.recording.RecordingBottomSheet
@@ -194,6 +195,29 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                     }
                 }
             }
+
+            OutlinedButton(
+                onClick = {
+                    if (!GalleryHandoff.openAudioScribe(context)) {
+                        android.widget.Toast.makeText(
+                            context, "Install or update Google AI Edge Gallery to use Audio Scribe.",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                },
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)
+            ) {
+                Icon(Icons.Default.RecordVoiceOver, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Open Google Audio Scribe (select clip manually)")
+            }
+            Text(
+                "Opens Gallery's offline Gemma. For a short recording, choose the archived audio " +
+                    "yourself in Gallery; the transcript is not returned to VoiceGrowth.",
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             StatsDashboard(state.allRecordings)
             OutlinedButton(
