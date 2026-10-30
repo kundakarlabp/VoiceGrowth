@@ -1,0 +1,36 @@
+name: Gemma 4 benchmark APK (separate preview)
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'gradle.properties'
+      - 'settings.gradle.kts'
+      - '.github/workflows/gemma-benchmark-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gemma-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.2.1'
+      - name: Compile and test isolated Gemma build
+        run: gradle --no-daemon testGemmaBenchmarkUnitTest lintGemmaBenchmark assembleGemmaBenchmark --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VoiceGrowth-gemma-comparison-preview
+          path: app/build/outputs/apk/gemmaBenchmark/*.apk
+          if-no-files-found: error
+          retention-days: 14
