@@ -12,7 +12,7 @@ import android.net.Uri
  */
 object GeminiWebHandoff {
     const val GEMINI_URL = "https://gemini.google.com/app"
-    const val PROMPT = """
+    val PROMPT: String = """
 VoiceGrowth consultation draft extraction — use only the attachment I explicitly provide.
 
 Transcribe spoken Telugu and English faithfully if an audio file is attached.
