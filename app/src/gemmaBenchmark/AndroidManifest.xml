@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Dedicated offline benchmark entry point, separate app ID, no microphone or network calls. -->
+        <activity
+            android:name="com.voicegrowth.app.gemmabench.GemmaBenchmarkActivity"
+            android:exported="true"
+            android:label="VoiceGrowth ASR Benchmark">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
