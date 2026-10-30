@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.sync.ArchiveFilePolicy
 import com.voicegrowth.app.integration.GalleryHandoff
+import com.voicegrowth.app.integration.GeminiWebHandoff
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.data.model.RecordingSource
 import com.voicegrowth.app.ui.screens.recording.RecordingBottomSheet
@@ -89,6 +91,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var showRecorder by remember { mutableStateOf(false) }
+    var geminiReviewRequested by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(state.message) {
@@ -219,6 +222,22 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            OutlinedButton(
+                onClick = { geminiReviewRequested = true },
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Open Gemini — consultation extraction")
+            }
+            Text(
+                "Copies a structured clinical-extraction prompt. You manually add an authorized, " +
+                    "de-identified recording or transcript in Gemini; nothing is uploaded by this button.",
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             StatsDashboard(state.allRecordings)
             OutlinedButton(
                 onClick = {
@@ -265,6 +284,37 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                 }
             }
         }
+    }
+
+    if (geminiReviewRequested) {
+        AlertDialog(
+            onDismissRequest = { geminiReviewRequested = false },
+            title = { Text("Open Gemini for consultation review?") },
+            text = {
+                Text(
+                    "VoiceGrowth will copy only a generic consultation-extraction template " +
+                    "and open Gemini. It will NOT upload any recording or transcript. " +
+                    "Only manually attach a de-identified recording after checking " +
+                    "institutional authorization, consent and Gemini's privacy terms."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    geminiReviewRequested = false
+                    GeminiWebHandoff.copyInstructions(context)
+                    val opened = GeminiWebHandoff.openGemini(context)
+                    android.widget.Toast.makeText(
+                        context,
+                        if (opened) "Prompt copied. Paste in Gemini and attach approved audio from Drive manually."
+                        else "Prompt copied. Open gemini.google.com manually.",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }) { Text("Copy prompt & open") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { geminiReviewRequested = false }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showRecorder) RecordingBottomSheet { showRecorder = false }
