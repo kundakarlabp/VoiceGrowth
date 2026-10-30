@@ -47,6 +47,13 @@ android {
             applicationIdSuffix = ".preview"
             versionNameSuffix = "-preview"
         }
+        // Separate APK; no changes to production or the opt-in Whisper preview.
+        create("gemmaBenchmark") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".gemma"
+            versionNameSuffix = "-gemma-benchmark"
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = false
             isShrinkResources = false
@@ -81,6 +88,8 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.work.runtime.ktx)
+    // Only in the separate benchmark APK. 0.16.1 supports the existing Kotlin 2.2 compiler.
+    add("gemmaBenchmarkImplementation", "com.google.ai.edge.litertlm:litertlm-android:0.16.1")
     // Pilot only: local file ASR, no Gemini/OpenAI API or background server.
     implementation("dev.ffmpegkit-maintained:whisper-android:1.0.0")
     implementation(libs.androidx.datastore.preferences)
