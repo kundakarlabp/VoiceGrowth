@@ -15,6 +15,9 @@ jobs:
       VOICEGROWTH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       VOICEGROWTH_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       VOICEGROWTH_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # Baseline values must be independently verified from the EXISTING installed APK.
+      VOICEGROWTH_BASELINE_SIGNING_SHA256: ${{ secrets.VOICEGROWTH_BASELINE_SIGNING_SHA256 }}
+      VOICEGROWTH_BASELINE_VERSION_CODE: ${{ vars.VOICEGROWTH_BASELINE_VERSION_CODE }}
 
     steps:
       - name: Checkout
@@ -39,6 +42,8 @@ jobs:
           test -n "$VOICEGROWTH_KEYSTORE_PASSWORD" || { echo "ANDROID_KEYSTORE_PASSWORD is not configured"; exit 1; }
           test -n "$VOICEGROWTH_KEY_ALIAS" || { echo "ANDROID_KEY_ALIAS is not configured"; exit 1; }
           test -n "$VOICEGROWTH_KEY_PASSWORD" || { echo "ANDROID_KEY_PASSWORD is not configured"; exit 1; }
+          test -n "$VOICEGROWTH_BASELINE_SIGNING_SHA256" || { echo "Existing installed APK signing certificate fingerprint must be verified first"; exit 1; }
+          test -n "$VOICEGROWTH_BASELINE_VERSION_CODE" || { echo "Existing installed APK versionCode must be verified first"; exit 1; }
 
       - name: Decode release keystore
         shell: bash
@@ -67,6 +72,29 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
           "$APKSIGNER" verify --print-certs "$APK"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$AAPT" || { echo "aapt not found"; exit 1; }
+          BADGING="$("$AAPT" dump badging "$APK")"
+          PKG_LINE="$(printf '%s\n' "$BADGING" | grep '^package: ' | head -n 1)"
+          PKG_NAME="$(printf '%s\n' "$PKG_LINE" | sed -n "s/.*name='\\([^']*\\)'.*/\\1/p")"
+          NEW_CODE="$(printf '%s\n' "$PKG_LINE" | sed -n "s/.*versionCode='\\([^']*\\)'.*/\\1/p")"
+          test "$PKG_NAME" = "com.voicegrowth.app" || { echo "Refusing to label nonproduction APK as production update"; exit 1; }
+          [[ "$NEW_CODE" =~ ^[0-9]+$ && "$VOICEGROWTH_BASELINE_VERSION_CODE" =~ ^[0-9]+$ ]] || {
+            echo "Missing/invalid numeric versionCode"; exit 1;
+          }
+          (( NEW_CODE > VOICEGROWTH_BASELINE_VERSION_CODE )) || {
+            echo "New versionCode must be strictly greater than existing installed version"; exit 1;
+          }
+          SIGNING_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          NEW_CERT="$(printf '%s\n' "$SIGNING_OUTPUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          OLD_CERT="$(printf '%s' "$VOICEGROWTH_BASELINE_SIGNING_SHA256" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          [[ "$NEW_CERT" =~ ^[0-9a-f]{64}$ && "$OLD_CERT" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "Missing/invalid signing certificate SHA-256 digest"; exit 1;
+          }
+          test "$NEW_CERT" = "$OLD_CERT" || {
+            echo "APK signing certificate differs from the existing app. Refusing unsafe update."; exit 1;
+          }
+          echo "Verified update-compatible package ID, signing identity, and versionCode."
           sha256sum "$APK"
 
       - name: Upload signed APK
