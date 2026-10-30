@@ -58,6 +58,25 @@ versionCode alone or telling the user to uninstall. Preserve the old
 install. If required, develop an explicit user-authorized export/import
 migration and verify its completeness before decommissioning the old app.
 
+
+### Signed-release CI safety gate
+
+The `Signed Android Release` workflow now **fails closed** unless the
+repository administrator configures these values, verified against the actual
+installed package:
+
+- GitHub Actions secret `VOICEGROWTH_BASELINE_SIGNING_SHA256`: SHA-256 digest
+  of the certificate which signed the current installed production APK.
+  This fingerprint is public metadata, **not** the private signing key.
+- GitHub Actions repository variable `VOICEGROWTH_BASELINE_VERSION_CODE`:
+  numeric `versionCode` of the current installed production APK.
+
+The workflow checks the new package is `com.voicegrowth.app`, its certificate
+matches the baseline exactly, and its `versionCode` increases. A build without
+the baseline is deliberately **not** published as an upgrade. The workflow
+does not configure credentials on your behalf. Never paste signing private
+keys, keystores or passwords into an issue, chat or public repository.
+
 ## Gemma model retention
 
 - A Gemma model downloaded inside **Google AI Edge Gallery** resides in
