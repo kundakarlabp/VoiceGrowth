@@ -48,9 +48,14 @@ Pilot the following in gemini.google.com → Spark (or Tasks), using *synthetic*
 or institutionally authorized, de-identified transcripts in a supported
 Drive document. Enable Workspace access only when appropriate:
 
-    Once each day, review only new de-identified VoiceGrowth transcript
-    documents explicitly marked ReadyForAI in my approved private Drive
-    folder. For each distinct source recording, draft a consultation summary
+    Once each day, check the existing KBP Intelligence Dashboard & Registry,
+    tab VG Inbox. Only process a source row if RecordingConsentStatus is
+    explicitly confirmed, SecondaryUseStatus explicitly approved, and
+    Deidentification explicitly verified by a clinician; missing/unknown
+    status means SKIP. Require a valid TranscriptDriveFileID linked to an
+    accessible de-identified TEXT transcript or Google Doc. If the source
+    is only M4A audio, report UNSUPPORTED and do not invent transcription.
+    For each qualifying distinct source recording, draft a consultation summary
     with source document URL, timestamp references, clinical problems,
     microbiology, antimicrobial medications and doses, ID recommendations,
     acceptance, follow-up, and an uncertainty checklist. Distinguish explicit
@@ -61,6 +66,12 @@ Drive document. Enable Workspace access only when appropriate:
     registry or create a new registry until I inspect and approve the
     results. De-duplicate by source Drive file ID. For any unsupported
     audio file, report "audio input not accessible" and do not infer content.
+
+The existing VG Inbox has RecordingConsentStatus, SecondaryUseStatus,
+Deidentification and TranscriptDriveFileID columns; no new tracking database
+is needed. The real row values must be explicitly reviewed and approved.
+An automatically uploaded audio file or transcript is NOT automatically
+authorized for AI/secondary use.
 
 This is a **pilot prompt, not a running scheduled task**. A successful manual
 pilot and verified privacy approval are prerequisites to a daily schedule.
