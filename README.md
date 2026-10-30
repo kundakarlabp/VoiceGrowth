@@ -1,5 +1,22 @@
 # VoiceGrowth Android Capture — v2.2.0
 
+## Mandatory upgrade/data-retention rule
+
+**Never advise uninstall/reinstall to fix an incompatible VoiceGrowth APK.**
+Existing installations may contain original clinical recordings, Room records,
+Drive sync queues, and model files. GitHub Actions debug previews may use
+ephemeral signing certificates and therefore **cannot be assumed to update
+older previews**. In-place updates require matching application ID and APK
+signing identity, higher versionCode, and validated non-destructive
+migrations. Production signed releases must pass the baseline certificate
+and versionCode checks in `.github/workflows/release-apk.yml`.
+
+See [Android upgrade and app-data preservation policy](docs/ANDROID_UPGRADE_DATA_PRESERVATION.md).
+Google AI Edge Gallery's downloaded Gemma model is in Gallery's **separate**
+storage; removing VoiceGrowth alone does not delete it.
+
+
+
 ## Active workflow (October 2026): ChatGPT on demand, no external backend
 
 **Source of truth:** VoiceGrowth Android captures originals → user's private Google
