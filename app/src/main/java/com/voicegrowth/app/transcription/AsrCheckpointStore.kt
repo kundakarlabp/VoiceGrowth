@@ -47,6 +47,37 @@ internal class AsrCheckpointStore(
 
     fun assembleMarkdown(modelName: String): String {
         check(nextMissing() == null) { "Cannot finalize incomplete recording" }
+        val terms = JSONArray()
+        val seen = mutableSetOf<String>()
+        for (index in 0 until windows) {
+            val piece = checkNotNull(load(index))
+            val segments = piece.optJSONArray("segments") ?: JSONArray()
+            if (segments.length() == 0) {
+                val w = TranscriptSegmentPlan.window(durationMs, index)
+                ClinicalTermIndexer.find(piece.optString("text"), w.startMs).forEach { hit ->
+                    val key = "${hit.category}|${hit.raw.lowercase()}|${hit.startMs / 2000}"
+                    if (seen.add(key)) {
+                        terms.put(JSONObject().put("rawASRTerm", hit.raw)
+                            .put("category", hit.category).put("tentativeTerm", hit.tentativeTerm)
+                            .put("timestampMs", hit.startMs).put("ASRExcerpt", hit.excerpt)
+                            .put("verified", false))
+                    }
+                }
+            } else {
+                for (j in 0 until segments.length()) {
+                    val seg = segments.getJSONObject(j)
+                    ClinicalTermIndexer.find(seg.optString("text"), seg.optLong("startMs")).forEach { hit ->
+                        val key = "${hit.category}|${hit.raw.lowercase()}|${hit.startMs / 2000}"
+                        if (seen.add(key)) {
+                            terms.put(JSONObject().put("rawASRTerm", hit.raw)
+                                .put("category", hit.category).put("tentativeTerm", hit.tentativeTerm)
+                                .put("timestampMs", hit.startMs).put("ASRExcerpt", hit.excerpt)
+                                .put("verified", false))
+                        }
+                    }
+                }
+            }
+        }
         val draft = JSONObject()
             .put("schema", "voicegrowth.consult-draft.v1")
             .put("reviewStatus", "UNVERIFIED_ASR")
@@ -61,6 +92,7 @@ internal class AsrCheckpointStore(
             .put("recommendationAcceptance", JSONObject.NULL)
             .put("followUp", JSONObject.NULL)
             .put("sourceEvidence", JSONArray())
+            .put("unverifiedTermMentions", terms)
             .put("requiresClinicianReview", true)
         return buildString {
             appendLine("# UNVERIFIED VoiceGrowth transcription — review before clinical use")
@@ -90,7 +122,7 @@ internal class AsrCheckpointStore(
             }
             appendLine("## Structured consultation — EMPTY DRAFT, not AI-extracted")
             appendLine()
-            appendLine("This template intentionally does NOT guess diagnoses, patients, CR numbers or drugs.")
+            appendLine("This template deliberately does not infer diagnoses, patients, CR numbers or actual drug exposure. Any term mention is an UNVERIFIED match in the ASR text, not proof of a clinical fact.")
             appendLine("A separately authorized extraction process may populate fields with exact audio/text evidence.")
             appendLine()
             appendLine("~~~json")
