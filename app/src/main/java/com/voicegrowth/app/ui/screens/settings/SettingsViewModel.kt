@@ -73,6 +73,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             return@launch
         }
         store.setOfflineTranscriptionEnabled(enabled)
+        app.configureLocalAsrPeriodic(enabled)
         _modelMessage.value = if (enabled) "Offline ASR enabled; resumes in short sessions while charging." else "Offline ASR disabled."
         if (enabled) app.enqueueLocalTranscription()
     }
