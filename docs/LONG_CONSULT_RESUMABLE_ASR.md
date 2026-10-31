@@ -38,9 +38,15 @@ provide unattended inference/return-text services.
    Drive file ID and does not prove remote upload.
 7. The draft contains exact model text and relative-to-recording timestamp
    windows, an explicit warning that overlap may duplicate words, and an
-   EMPTY JSON clinical consultation template. No diagnosis, organism, CR,
-   drug, outcome, or recommendation is inferred by this ASR worker.
-8. A separate, explicitly authorized Gemini Spark text-processing pilot
+   EMPTY clinical consultation template plus tagged, unverified ASR term
+   mentions (for example "Mero", "BioFire" or "CRO") with the raw excerpt
+   and timestamp. These are candidate WORDS, not confirmed drug exposures,
+   clinical diagnoses or susceptibility results. No patient CR, diagnosis,
+   organism, outcome or recommendation is inferred by the ASR worker.
+8. Completed local drafts can also be deliberately exported through the
+   Android "Share ASR draft" control, using a read-only FileProvider grant.
+   No data is automatically shared with Gemini or another external recipient.
+9. A separate, explicitly authorized Gemini Spark text-processing pilot
    could read approved/deidentified Drive transcripts and draft clinical
    extraction fields. It has **not** been configured or validated. The
    canonical KBP registry is not written automatically by this branch.
