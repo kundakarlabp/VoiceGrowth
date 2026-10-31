@@ -235,6 +235,24 @@ Original audio may contain patient identifiers and is **not de-identified**. Use
 
 **VoiceGrowth 2.3.0, versionCode 23** is released as the production application ID `com.voicegrowth.app` via the signed Android release build. Debug builds intentionally use `com.voicegrowth.app.preview` and are separate applications. A Preview installation cannot become the production application as an in-place update; keep Preview and preserve or share/import its local recordings while setting up production. Existing `com.voicegrowth.app` production installations require the exact same signing certificate for a safe update. Never uninstall a clinical recording app merely to bypass a signature mismatch.
 
+### Required production signing configuration
+
+The public repository intentionally contains **no signing private key**. Before using
+**Actions → Signed Android Release → Run workflow**, configure these GitHub
+Actions repository secrets (Settings → Secrets and variables → Actions):
+
+- `ANDROID_KEYSTORE_BASE64`: Base64-encoded bytes of the private release JKS/PKCS12 keystore
+- `ANDROID_KEYSTORE_PASSWORD`: keystore password
+- `ANDROID_KEY_ALIAS`: signing-key alias
+- `ANDROID_KEY_PASSWORD`: key password
+
+The keystore must match the certificate of an already installed
+`com.voicegrowth.app` production APK for an in-place update. If only
+`com.voicegrowth.app.preview` is installed, production is a separate app;
+preserve or export Preview recordings before removing Preview. Never put the
+private keystore, its Base64 string, or passwords in public repository commits,
+issues, logs, or files.
+
 ## Safe preview versus production upgrade
 
 GitHub Actions debug artifacts for this branch use application ID
