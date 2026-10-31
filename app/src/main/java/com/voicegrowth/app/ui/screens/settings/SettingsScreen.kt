@@ -118,7 +118,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Original-audio destination", fontWeight = FontWeight.SemiBold)
                     Text(
-                        "VoiceGrowth writes the original recording through Android Files/Google Drive. No local transcription or Gemma model is required.",
+                        "Records and archives original audio only. No local transcription, AI models or clinical processing.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     if (settings.driveTreeUri.isNullOrBlank()) {
@@ -129,7 +129,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                             Text("Choose Google Drive folder")
                         }
                         Text(
-                            "In Android Files, choose Google Drive → select a parent folder → Use this folder. VoiceGrowth creates VoiceGrowth/Audio/YYYY/MM-MMM.",
+                            "In Android Files → Google Drive, select the existing VoiceGrowth/Audio folder itself (preferred) → Use this folder. Do not select My Drive or Transcripts.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     } else {
@@ -142,7 +142,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                                 color = if (it.usable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
                         }
-                        Text("Destination: VoiceGrowth/Audio/YYYY/MM-MMM (or YYYY/MM-MMM when Audio is selected). Provider read-back checked; remote cloud confirmation is separate.", style = MaterialTheme.typography.bodySmall)
+                        Text("Archive: Audio/YYYY/MM-MMM within the selected folder. Provider save/read-back does not prove Google cloud sync.", style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { driveFolderPicker.launch(Uri.parse(settings.driveTreeUri)) }) { Text("Change folder") }
                             OutlinedButton(onClick = { viewModel.refreshDriveTreeStatus(testWrite = true) }) { Text("Test & sync") }
