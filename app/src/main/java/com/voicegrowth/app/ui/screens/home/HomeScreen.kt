@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Phone
@@ -97,19 +98,6 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
         }
     }
 
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                )
-            }.recoverCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            viewModel.selectFolder(uri, uri.lastPathSegment ?: "Call recordings")
-        }
-    }
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         viewModel.importAudioUris(uris)
     }
@@ -130,7 +118,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 actions = {
                     IconButton(onClick = { audioPicker.launch(arrayOf("audio/*")) }) { Icon(Icons.Default.Add, "Import audio") }
-                    IconButton(onClick = viewModel::scanNow, enabled = !state.isScanning) { Icon(Icons.Default.Refresh, "Scan call folder") }
+                    IconButton(onClick = viewModel::syncNow) { Icon(Icons.Default.CloudUpload, "Sync recordings to Drive") }
                     IconButton(onClick = onNavigateToSettings) { Icon(Icons.Default.Settings, "Settings") }
                 }
             )
@@ -157,40 +145,6 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                             Text("Audio remains on the phone until an archive folder is selected in Settings.", style = MaterialTheme.typography.bodySmall)
                         }
                         Button(onClick = onNavigateToSettings) { Text("Setup") }
-                    }
-                }
-            }
-
-            Card(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f))
-            ) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CloudDone, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text("Audio-first workflow", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "VoiceGrowth records and uploads the original audio. Transcription and clinical analysis happen later through the ChatGPT workflow.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-
-            if (state.settings.selectedFolderUri == null) {
-                Card(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                ) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Phone, null)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Optional: link OEM call recordings", fontWeight = FontWeight.SemiBold)
-                            Text("Use this only if you also want VoiceGrowth to collect recordings made by the phone's native recorder.", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Button(onClick = { folderPicker.launch(null) }) { Text("Link") }
                     }
                 }
             }
