@@ -24,6 +24,8 @@ class RecordingRepository(
         dao.getLocalTranscriptionCandidates(limit)
     suspend fun getTranscriptSyncCandidates(): List<RecordingEntity> = dao.getTranscriptSyncCandidates()
     suspend fun clearLocalAsrFailures() = dao.clearLocalAsrFailures()
+    suspend fun updateDurationIfMissing(id: Long, seconds: Long) =
+        dao.updateDurationIfMissing(id, seconds)
     suspend fun getSyncCandidates(): List<RecordingEntity> = dao.getSyncCandidates()
     suspend fun getCompletedOlderThan(timestamp: Long): List<RecordingEntity> = dao.getCompletedOlderThan(timestamp)
 
