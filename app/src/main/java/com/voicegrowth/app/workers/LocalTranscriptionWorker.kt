@@ -13,6 +13,7 @@ import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.sync.DriveTreeSyncService
 import com.voicegrowth.app.transcription.AsrCheckpointStore
+import com.voicegrowth.app.transcription.AudioDurationProbe
 import com.voicegrowth.app.transcription.LocalTranscriptPolicy
 import com.voicegrowth.app.transcription.SegmentedAudioWavDecoder
 import com.voicegrowth.app.transcription.TranscriptSegmentPlan
@@ -73,8 +74,19 @@ class LocalTranscriptionWorker(context: Context, parameters: WorkerParameters) :
             }
         }
 
-        val candidate = repository.getLocalTranscriptionCandidates(limit = 1).firstOrNull()
+        var candidate = repository.getLocalTranscriptionCandidates(limit = 1).firstOrNull()
             ?: return Result.success()
+        if (candidate.durationSeconds == 0L) {
+            try {
+                val seconds = AudioDurationProbe.seconds(applicationContext, Uri.parse(candidate.uriString))
+                repository.updateDurationIfMissing(candidate.id, seconds)
+                candidate = candidate.copy(durationSeconds = seconds)
+            } catch (error: Exception) {
+                repository.updateStatus(candidate.id, candidate.status,
+                    "Local ASR: ${(error.message ?: "Duration unavailable").take(150)}")
+                return Result.success()
+            }
+        }
         val checkpoint = try {
             AsrCheckpointStore(File(applicationContext.filesDir, "asr_checkpoints"), candidate, model)
         } catch (error: Exception) {
