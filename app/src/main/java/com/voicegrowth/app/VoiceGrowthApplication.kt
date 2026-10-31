@@ -113,8 +113,9 @@ class VoiceGrowthApplication : Application() {
     }
 
     /** Charging-only, opt-in offline ASR. No network connectivity needed. */
-    fun enqueueLocalTranscription() {
+    fun enqueueLocalTranscription(delayMinutes: Long = 0) {
         val request = OneTimeWorkRequestBuilder<LocalTranscriptionWorker>()
+            .setInitialDelay(delayMinutes.coerceIn(0L, 15L), TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder()
                 .setRequiresCharging(true)
                 .setRequiresBatteryNotLow(true)
