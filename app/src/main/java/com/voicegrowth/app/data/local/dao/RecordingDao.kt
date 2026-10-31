@@ -28,14 +28,14 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings WHERE status IN ('PENDING', 'TRANSCRIBING') ORDER BY recordedAt ASC")
     suspend fun getPendingRecordings(): List<RecordingEntity>
 
-    @Query("SELECT * FROM recordings WHERE driveAudioFileId IS NOT NULL AND transcriptPath IS NULL AND durationSeconds BETWEEN 1 AND 180 AND (errorMessage IS NULL OR errorMessage NOT LIKE 'Local ASR:%') ORDER BY recordedAt ASC LIMIT :limit")
+    @Query("SELECT * FROM recordings WHERE driveAudioFileId IS NOT NULL AND transcriptPath IS NULL AND durationSeconds BETWEEN 1 AND 7200 AND (errorMessage IS NULL OR errorMessage NOT LIKE 'Local ASR:%') ORDER BY recordedAt ASC LIMIT :limit")
     
     suspend fun getLocalTranscriptionCandidates(limit: Int = 3): List<RecordingEntity>
 
-    @Query("SELECT * FROM recordings WHERE transcriptPath IS NOT NULL AND driveFileId IS NULL ORDER BY recordedAt ASC LIMIT 10")
+    @Query("SELECT * FROM recordings WHERE transcriptPath IS NOT NULL AND driveFileId IS NULL AND (errorMessage IS NULL OR errorMessage NOT LIKE 'Local ASR sync:%') ORDER BY recordedAt ASC LIMIT 10")
     suspend fun getTranscriptSyncCandidates(): List<RecordingEntity>
 
-    @Query("UPDATE recordings SET errorMessage = NULL WHERE transcriptPath IS NULL AND errorMessage LIKE 'Local ASR:%'")
+    @Query("UPDATE recordings SET errorMessage = NULL WHERE errorMessage LIKE 'Local ASR:%'")
     suspend fun clearLocalAsrFailures()
 
     // Include legacy processing states so an upgrade to v2 can upload recordings that were waiting
