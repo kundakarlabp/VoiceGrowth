@@ -48,6 +48,10 @@ class VoiceGrowthApplication : Application() {
         schedulePeriodicWork(this)
         CaptureNotificationManager.showReady(this)
         backgroundScope.launch {
+            val enabled = container.recordingRepository.settingsFlow.first().offlineTranscriptionEnabled
+            configureLocalAsrPeriodic(enabled)
+        }
+        backgroundScope.launch {
             runCatching {
                 val recovered = InterruptedRecordingRecovery(this@VoiceGrowthApplication, container.recordingRepository).recover()
                 if (recovered > 0) {
@@ -125,6 +129,27 @@ class VoiceGrowthApplication : Application() {
         )
     }
 
+    /** No periodic ASR wakeups until a model is imported and user opts in. */
+    fun configureLocalAsrPeriodic(enabled: Boolean) {
+        val manager = WorkManager.getInstance(this)
+        if (!enabled) {
+            manager.cancelUniqueWork("VoiceGrowth_LocalTranscription_periodic")
+            manager.cancelUniqueWork(LocalTranscriptionWorker.WORK_NAME)
+            return
+        }
+        manager.enqueueUniquePeriodicWork(
+            "VoiceGrowth_LocalTranscription_periodic",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(15, TimeUnit.MINUTES)
+                .setConstraints(Constraints.Builder()
+                    .setRequiresCharging(true)
+                    .setRequiresBatteryNotLow(true)
+                    .setRequiresStorageNotLow(true)
+                    .build())
+                .build()
+        )
+    }
+
     fun enqueueFolderScanNow(force: Boolean = true) {
         val request = OneTimeWorkRequestBuilder<FolderScanWorker>()
             .setInputData(workDataOf(FolderScanWorker.INPUT_FORCE_SCAN to force))
@@ -166,16 +191,6 @@ class VoiceGrowthApplication : Application() {
 
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
-
-            // Offline inference is opt-in; wake every 15 min while charging to resume checkpoints.
-            workManager.enqueueUniquePeriodicWork(
-                "VoiceGrowth_LocalTranscription_periodic",
-                ExistingPeriodicWorkPolicy.UPDATE,
-                PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(15, TimeUnit.MINUTES)
-                    .setConstraints(Constraints.Builder().setRequiresCharging(true)
-                        .setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())
-                    .build()
-            )
 
             val scanRequest = PeriodicWorkRequestBuilder<FolderScanWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build())
