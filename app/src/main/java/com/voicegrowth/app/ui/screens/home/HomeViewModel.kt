@@ -86,6 +86,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun syncNow() {
+        app.enqueueDriveSync(uiState.value.settings.wifiOnly)
+        message.value = "Audio sync queued. Provider saved is not cloud-confirmed."
+    }
+
     fun scanNow() = viewModelScope.launch {
         if (scanning.value) return@launch
         scanning.value = true

@@ -129,7 +129,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val status = verified.getOrThrow()
         _driveTreeStatus.value = status
         store.setDriveTree(uri.toString(), status.displayName)
-        store.setDriveFolderHierarchy("VoiceGrowth/Audio")
         app.enqueueDriveSync(store.settingsFlow.first().wifiOnly)
     }
 

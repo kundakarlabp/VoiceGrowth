@@ -28,9 +28,6 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings WHERE status IN ('PENDING', 'TRANSCRIBING') ORDER BY recordedAt ASC")
     suspend fun getPendingRecordings(): List<RecordingEntity>
 
-    @Query("SELECT * FROM recordings WHERE driveAudioFileId IS NOT NULL AND transcriptPath IS NULL AND status NOT IN ('SKIPPED_TOO_SHORT') ORDER BY recordedAt ASC LIMIT :limit")
-    suspend fun getLocalTranscriptionCandidates(limit: Int = 3): List<RecordingEntity>
-
     // Include legacy processing states so an upgrade to v2 can upload recordings that were waiting
     // for local ASR in earlier versions.
     @Query("SELECT * FROM recordings WHERE status IN ('PENDING', 'TRANSCRIBING', 'LOCAL_READY', 'WAITING_FOR_SYNC', 'UPLOADED', 'FAILED') ORDER BY recordedAt ASC")
@@ -44,19 +41,6 @@ interface RecordingDao {
 
     @Query("UPDATE recordings SET status = :status, errorMessage = :error, retryCount = 0 WHERE id = :id")
     suspend fun updateStatusResetRetry(id: Long, status: ProcessingStatus, error: String? = null)
-
-    @Query("UPDATE recordings SET transcriptPath = :transcriptPath, detectedThemes = :themes, durationSeconds = :durationSeconds, status = :status, processedAt = :processedAt, errorMessage = NULL, retryCount = 0 WHERE id = :id")
-    suspend fun updateTranscript(
-        id: Long,
-        transcriptPath: String,
-        themes: String,
-        durationSeconds: Long,
-        status: ProcessingStatus,
-        processedAt: Long
-    )
-
-    @Query("UPDATE recordings SET driveFileId = :driveFileId, driveWebViewLink = :driveWebViewLink WHERE id = :id")
-    suspend fun updateTranscriptUpload(id: Long, driveFileId: String, driveWebViewLink: String?)
 
     @Query("UPDATE recordings SET driveAudioFileId = :driveAudioFileId WHERE id = :id")
     suspend fun updateAudioUpload(id: Long, driveAudioFileId: String)

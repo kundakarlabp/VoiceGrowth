@@ -65,9 +65,11 @@ class DriveTreeSyncService(private val context: Context) {
             val name = root.name?.takeIf(String::isNotBlank) ?: fallbackName(uri)
             val readable = root.exists() && root.isDirectory && root.canRead()
             val writable = readable && root.canWrite()
-            val usable = readable && writable && read && write
+            val supportedRoot = DriveDestinationPolicy.isSupportedRoot(name)
+            val usable = readable && writable && read && write && supportedRoot
             val message = when {
                 !read || !write -> "Persistent read/write access was not retained. Choose the folder again and tap Use this folder / Allow."
+                !supportedRoot -> "Select the existing VoiceGrowth/Audio folder in Google Drive, or its immediate VoiceGrowth parent. Do not select My Drive or Transcripts."
                 !readable -> "The selected cloud folder is no longer readable. Re-select it in Android Files."
                 !writable -> "The selected cloud folder is read-only. Choose a folder where VoiceGrowth can create files."
                 else -> "Cloud folder access is healthy. VoiceGrowth can sync without an OAuth client."
@@ -105,8 +107,7 @@ class DriveTreeSyncService(private val context: Context) {
         localFile: File,
         mimeType: String,
         recordedAtMillis: Long,
-        remoteFileName: String,
-        baseHierarchy: String = "VoiceGrowth/Audio"
+        remoteFileName: String
     ): Result<DriveUploadResult> = withContext(Dispatchers.IO) {
         runCatching {
             require(localFile.exists() && localFile.length() > 0L) { "Local upload file is missing or empty" }
@@ -116,7 +117,7 @@ class DriveTreeSyncService(private val context: Context) {
 
             val year = yearFormat.format(Date(recordedAtMillis))
             val month = monthFormat.format(Date(recordedAtMillis))
-            val segments = DriveDestinationPolicy.relativeSegments(status.displayName, sanitizeHierarchy(baseHierarchy)) + listOf(year, month)
+            val segments = DriveDestinationPolicy.relativeSegments(status.displayName, listOf("VoiceGrowth", "Audio")) + listOf(year, month)
             var parent = root
             for (segment in segments) parent = getOrCreateDirectory(parent, segment)
 
@@ -218,21 +219,15 @@ class DriveTreeSyncService(private val context: Context) {
         require(matches.all { it.isDirectory }) {
             "A file named '$name' blocks creation of the Drive folder hierarchy"
         }
-        // When historical duplicate folders exist, choose one stable destination.
-        // Do not delete, merge, or relocate existing recordings automatically.
-        val resolved = matches.sortedBy { it.uri.toString() }.firstOrNull()
+        // A duplicate sibling makes the target ambiguous. Never choose an arbitrary one.
+        require(matches.size <= 1) {
+            "Duplicate $name folders exist here. Select the existing VoiceGrowth/Audio folder directly."
+        }
+        val resolved = matches.firstOrNull()
             ?: parent.createDirectory(name)
             ?: error("Cloud provider could not create folder '$name'")
         directoryCache[key] = resolved
         return resolved
-    }
-
-    private fun sanitizeHierarchy(path: String): List<String> {
-        val segments = path.split('/')
-            .map(String::trim)
-            .filter { it.isNotEmpty() && it != "." && it != ".." }
-            .map(::sanitizeSegment)
-        return if (segments.isEmpty()) listOf("VoiceGrowth", "Audio") else segments
     }
 
     private fun sanitizeSegment(value: String): String = value

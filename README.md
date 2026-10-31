@@ -1,6 +1,6 @@
-# VoiceGrowth Android Capture — v2.2.0
+# VoiceGrowth Android Capture — v2.3.0
 
-## Active workflow (October 2026): ChatGPT on demand, no external backend
+## Active workflow (October 2026): audio-only production app and private Drive
 
 **Source of truth:** VoiceGrowth Android captures originals → user's private Google
 Drive stores them → clinician explicitly asks ChatGPT/Work to transcribe/review
@@ -9,8 +9,8 @@ Google Sheet stores curated consultations and longitudinal clinical events →
 a workspace-private **ChatGPT Site** displays the approved clinical-academic
 dashboard when the user creates it in Work.
 
-No Railway, no scheduled Drive polling, no background ASR/LLM, no paid API
-service or second automatic dashboard is required or desired for this workflow.
+No Railway, paid API, or on-device transcription is required. Scheduling and
+clinical processing are separately handled by authorized Gemini/ChatGPT Drive workflows.
 The legacy `backend/` code remains for reference but is **not part of the
 active path** and its automatic paid processing flags default to false.
 Do not deploy it solely to make ChatGPT access Drive.
@@ -89,8 +89,8 @@ Optional. Select the highest iQOO/Funtouch folder containing the phone's native 
 The supported v2 path is Android Storage Access Framework (SAF):
 
 1. Open **Settings → Google Drive**.
-2. Choose a Google Drive folder through Android Files.
-3. Grant **Use this folder / Allow**.
+2. In Android Files choose Google Drive and select the **existing VoiceGrowth/Audio** folder (preferred), or its immediate VoiceGrowth parent. Do not select My Drive, Transcripts, or unrelated folders.
+3. Grant **Use this folder / Allow**. The selected folder must be Audio or VoiceGrowth. Ambiguous duplicate child folders stop sync instead of being arbitrarily selected.
 4. VoiceGrowth verifies persisted read/write access with a create/write/delete test.
 5. Recordings are stored under:
 
@@ -230,6 +230,10 @@ These functions are better handled downstream by higher-capability cloud transcr
 ## Privacy boundary
 
 Original audio may contain patient identifiers and is **not de-identified**. Use an access-restricted Drive location and follow applicable institutional requirements for clinical recordings. Downstream transcription/clinical processing should explicitly separate source transcript, normalized transcript, extracted facts, and AI interpretation.
+
+## Production release and existing Preview installation
+
+**VoiceGrowth 2.3.0, versionCode 23** is released as the production application ID `com.voicegrowth.app` via the signed Android release build. Debug builds intentionally use `com.voicegrowth.app.preview` and are separate applications. A Preview installation cannot become the production application as an in-place update; keep Preview and preserve or share/import its local recordings while setting up production. Existing `com.voicegrowth.app` production installations require the exact same signing certificate for a safe update. Never uninstall a clinical recording app merely to bypass a signature mismatch.
 
 ## Safe preview versus production upgrade
 
