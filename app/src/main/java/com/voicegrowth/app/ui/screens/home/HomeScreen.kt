@@ -278,6 +278,11 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                                 runCatching { shareRecording(context, recording) }.onFailure {
                                     android.widget.Toast.makeText(context, "Cannot share this audio; confirm that the source file is still accessible", android.widget.Toast.LENGTH_LONG).show()
                                 }
+                            },
+                            onShareDraft = {
+                                runCatching { shareTranscriptDraft(context, recording) }.onFailure {
+                                    android.widget.Toast.makeText(context, "Draft transcript could not be shared", android.widget.Toast.LENGTH_LONG).show()
+                                }
                             }
                         )
                     }
@@ -438,12 +443,32 @@ private fun shareRecording(context: Context, recording: RecordingEntity) {
     context.startActivity(Intent.createChooser(send, "Share approved audio recording"))
 }
 
+/**
+ * Read-only user-triggered export. Never transmits a transcript automatically
+ * to Gemini or another consumer provider.
+ */
+private fun shareTranscriptDraft(context: Context, recording: RecordingEntity) {
+    val draft = File(requireNotNull(recording.transcriptPath))
+    val privateRoot = File(context.filesDir, "transcripts").canonicalPath + File.separator
+    require(draft.isFile && draft.canonicalPath.startsWith(privateRoot)) {
+        "Transcript is outside VoiceGrowth private storage"
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", draft)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/markdown"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Share unverified ASR draft (approved recipients only)"))
+}
+
 @Composable
 private fun RecordingCard(
     recording: RecordingEntity,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onShareDraft: () -> Unit
 ) {
     val date = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.US) }.format(Date(recording.recordedAt))
     val status = statusPresentation(recording)
@@ -475,6 +500,9 @@ private fun RecordingCard(
                     IconButton(onClick = onRetry) { Icon(Icons.Default.Refresh, "Retry upload") }
                 }
                 IconButton(onClick = onShare) { Icon(Icons.Default.Share, "Share selected audio") }
+                if (!recording.transcriptPath.isNullOrBlank()) {
+                    OutlinedButton(onClick = onShareDraft) { Text("Share ASR draft") }
+                }
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Remove from list") }
             }
         }
