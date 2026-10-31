@@ -7,7 +7,6 @@ import androidx.work.WorkerParameters
 import com.voicegrowth.app.VoiceGrowthApplication
 import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.data.model.ProcessingStatus
-import com.voicegrowth.app.data.preferences.AppSettings
 import com.voicegrowth.app.sync.DriveTreeSyncService
 import com.voicegrowth.app.sync.ArchiveFilePolicy
 import kotlinx.coroutines.CancellationException
@@ -22,8 +21,8 @@ import java.util.Locale
  *
  * The Android app has one durable responsibility: archive the original audio into the user-selected
  * private Drive tree. It does not transcribe, diarize, summarize, or upload locally generated
- * transcript artifacts. The backend transcription bridge discovers the persisted Drive audio by
- * immutable Drive file ID and performs transcription from those exact bytes.
+ * transcript artifacts. The Android DocumentsProvider URI is not a Google Drive REST file ID;
+ * Gemini and ChatGPT discover cloud audio separately through their connected Drive access.
  */
 class DriveSyncWorker(
     appContext: Context,
@@ -75,8 +74,7 @@ class DriveSyncWorker(
                     localFile = tempAudio,
                     mimeType = mimeTypeFor(candidate.fileName),
                     recordedAtMillis = candidate.recordedAt,
-                    remoteFileName = ArchiveFilePolicy.stableName(candidate.id, candidate.recordedAt, candidate.source.name, candidate.fileName),
-                    baseHierarchy = audioHierarchy(settings)
+                    remoteFileName = ArchiveFilePolicy.stableName(candidate.id, candidate.recordedAt, candidate.source.name, candidate.fileName)
                 ).getOrThrow()
 
                 require(audioResult.fileId.isNotBlank()) {
@@ -123,18 +121,6 @@ class DriveSyncWorker(
             repository.recordRetry(candidate.id, ProcessingStatus.WAITING_FOR_SYNC, "Drive sync: $clean")
             true
         }
-    }
-
-    private fun audioHierarchy(settings: AppSettings): String {
-        val configured = settings.driveFolderHierarchy.trim('/').ifBlank { "VoiceGrowth/Audio" }
-        val normalized = when {
-            configured.equals("VoiceGrowth", ignoreCase = true) -> "VoiceGrowth/Audio"
-            configured.endsWith("/Transcripts", ignoreCase = true) -> configured.substringBeforeLast('/') + "/Audio"
-            configured.equals("Transcripts", ignoreCase = true) -> "VoiceGrowth/Audio"
-            configured.endsWith("/Audio", ignoreCase = true) -> configured
-            else -> configured
-        }
-        return normalized.trim('/').ifBlank { "VoiceGrowth/Audio" }
     }
 
     /**
