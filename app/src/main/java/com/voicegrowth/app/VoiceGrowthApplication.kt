@@ -167,11 +167,11 @@ class VoiceGrowthApplication : Application() {
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
 
-            // Offline inference is opt-in and waits for charging. Disabled by default.
+            // Offline inference is opt-in; wake every 15 min while charging to resume checkpoints.
             workManager.enqueueUniquePeriodicWork(
                 "VoiceGrowth_LocalTranscription_periodic",
                 ExistingPeriodicWorkPolicy.UPDATE,
-                PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(6, TimeUnit.HOURS)
+                PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(15, TimeUnit.MINUTES)
                     .setConstraints(Constraints.Builder().setRequiresCharging(true)
                         .setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())
                     .build()
