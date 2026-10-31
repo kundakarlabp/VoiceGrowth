@@ -175,7 +175,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                     Column {
                         Text("Audio-first workflow", fontWeight = FontWeight.SemiBold)
                         Text(
-                            "VoiceGrowth records and uploads the original audio. Transcription and clinical analysis happen later through the ChatGPT workflow.",
+                            "VoiceGrowth saves original audio first. Optional offline Whisper creates an unverified transcript while charging. Structured clinical extraction still requires review.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -325,11 +325,20 @@ private fun StatsDashboard(recordings: List<RecordingEntity>) {
     val waiting = recordings.count { it.driveAudioFileId.isNullOrBlank() && it.status != ProcessingStatus.FAILED }
     val uploaded = recordings.count { !it.driveAudioFileId.isNullOrBlank() }
     val failed = recordings.count { it.status == ProcessingStatus.FAILED }
+    val draftCount = recordings.count { !it.transcriptPath.isNullOrBlank() }
     Column {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("Waiting", waiting, StatusPending, Modifier.weight(1f))
             Stat("Provider saved", uploaded, StatusUploaded, Modifier.weight(1f))
             Stat("Failed", failed, StatusFailed, Modifier.weight(1f))
+        }
+        if (draftCount > 0) {
+            Text(
+                "Offline ASR drafts: $draftCount (not clinically verified)",
+                modifier = Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
         if (uploaded > 0) {
             Text(
@@ -452,6 +461,11 @@ private fun RecordingCard(
             }
             Spacer(Modifier.height(8.dp))
             Text("$date • ${formatDuration(recording.durationSeconds)}", style = MaterialTheme.typography.bodySmall)
+            if (!recording.transcriptPath.isNullOrBlank()) {
+                Text("ASR draft saved locally — clinician review required",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
             recording.errorMessage?.let {
                 Spacer(Modifier.height(4.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
