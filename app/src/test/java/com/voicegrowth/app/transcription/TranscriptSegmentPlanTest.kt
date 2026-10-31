@@ -19,7 +19,9 @@ class TranscriptSegmentPlanTest {
     }
     @Test fun handlesVeryShortAndBoundaryAudio() {
         assertEquals(1, TranscriptSegmentPlan.count(1_000))
+        assertEquals(1, TranscriptSegmentPlan.count(28_000))
         assertEquals(2, TranscriptSegmentPlan.count(28_001))
+        assertEquals(2, TranscriptSegmentPlan.count(54_001))
         assertEquals(1, TranscriptSegmentPlan.count(27_000))
     }
     @Test fun enforcesTwoHourLimit() {
