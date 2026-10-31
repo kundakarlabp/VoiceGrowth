@@ -2,6 +2,8 @@ package com.voicegrowth.app.workers
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.work.CoroutineWorker
@@ -46,6 +48,13 @@ class LocalTranscriptionWorker(context: Context, parameters: WorkerParameters) :
         val settings = repository.settingsFlow.first()
         if (!settings.offlineTranscriptionEnabled) return Result.success()
         if (RecordingStateStore.isRecording(applicationContext)) return Result.success()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val power = applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) {
+                Log.i(TAG, "ASR deferred due to thermal status; periodic WorkManager will retry")
+                return Result.success()
+            }
+        }
 
         val model = settings.offlineWhisperModelPath?.let(::File)
             ?.takeIf {
@@ -60,7 +69,7 @@ class LocalTranscriptionWorker(context: Context, parameters: WorkerParameters) :
         if (unsynced != null) {
             return try {
                 syncTranscript(unsynced, settings)
-                app.enqueueLocalTranscription()
+                app.enqueueLocalTranscription(delayMinutes = 2)
                 Result.success()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
@@ -148,9 +157,9 @@ class LocalTranscriptionWorker(context: Context, parameters: WorkerParameters) :
                     candidate.durationSeconds, candidate.status, System.currentTimeMillis())
                 checkpoint.cleanupAfterCommit()
                 syncTranscript(candidate.copy(transcriptPath = outFile.absolutePath), settings)
-                app.enqueueLocalTranscription()
+                app.enqueueLocalTranscription(delayMinutes = 2)
             } else if (progressed) {
-                app.enqueueLocalTranscription()
+                app.enqueueLocalTranscription(delayMinutes = 2)
             }
             return Result.success()
         } catch (e: CancellationException) { throw e }
