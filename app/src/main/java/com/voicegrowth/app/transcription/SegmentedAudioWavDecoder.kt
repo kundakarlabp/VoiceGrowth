@@ -34,6 +34,13 @@ internal object SegmentedAudioWavDecoder {
             val startUs = window.startMs * 1000
             val endUs = window.endMs * 1000
             extractor.seekTo((startUs - 250_000L).coerceAtLeast(0L), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            // Reject non-seekable remote audio providers instead of repeatedly decoding
+            // hours of preceding audio for every new window.
+            if (startUs > 5_000_000L) {
+                require(extractor.sampleTime >= startUs - 5_000_000L) {
+                    "Audio source cannot seek near the requested segment"
+                }
+            }
             val decoder = MediaCodec.createDecoderByType(mime)
             codec = decoder
             decoder.configure(track, null, null, 0)
