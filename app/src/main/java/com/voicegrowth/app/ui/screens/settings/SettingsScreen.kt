@@ -203,7 +203,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                     Text("On-device Whisper", fontWeight = FontWeight.SemiBold)
                     Text(
                         "Optional and free; no paid API. First import a multilingual ggml Whisper model (.bin, typically 142 MB+). " +
-                            "The app processes recordings up to 3 minutes while charging, then saves draft transcripts beside Audio in private Drive.",
+                            "The app processes archived recordings up to 2 hours in resumable 28-second windows while charging. " +
+                            "Drafts retain timestamps and are not clinically verified.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(
@@ -222,7 +223,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onNavigateBack: () -> Unit) {
                     )
                     if (settings.offlineTranscriptionEnabled) {
                         OutlinedButton(onClick = viewModel::runOfflineTranscriptionNow) {
-                            Text("Process pending short recordings")
+                            Text("Resume pending transcription")
                         }
                     }
                     modelMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

@@ -73,7 +73,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             return@launch
         }
         store.setOfflineTranscriptionEnabled(enabled)
-        _modelMessage.value = if (enabled) "Offline ASR enabled; runs while charging." else "Offline ASR disabled."
+        app.configureLocalAsrPeriodic(enabled)
+        _modelMessage.value = if (enabled) "Offline ASR enabled; resumes in short sessions while charging." else "Offline ASR disabled."
         if (enabled) app.enqueueLocalTranscription()
     }
 
@@ -82,7 +83,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             // Explicit retry clears only local-ASR errors; never touches Drive upload errors.
             app.container.recordingRepository.clearLocalAsrFailures()
             app.enqueueLocalTranscription()
-            _modelMessage.value = "Short recordings queued for offline processing while charging."
+            _modelMessage.value = "Eligible recordings queued for resumable offline transcription while charging."
         } else _modelMessage.value = "Enable offline ASR after installing a model."
     }
 

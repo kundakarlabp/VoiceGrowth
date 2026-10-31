@@ -48,6 +48,10 @@ class VoiceGrowthApplication : Application() {
         schedulePeriodicWork(this)
         CaptureNotificationManager.showReady(this)
         backgroundScope.launch {
+            val enabled = container.recordingRepository.settingsFlow.first().offlineTranscriptionEnabled
+            configureLocalAsrPeriodic(enabled)
+        }
+        backgroundScope.launch {
             runCatching {
                 val recovered = InterruptedRecordingRecovery(this@VoiceGrowthApplication, container.recordingRepository).recover()
                 if (recovered > 0) {
@@ -109,8 +113,9 @@ class VoiceGrowthApplication : Application() {
     }
 
     /** Charging-only, opt-in offline ASR. No network connectivity needed. */
-    fun enqueueLocalTranscription() {
+    fun enqueueLocalTranscription(delayMinutes: Long = 0) {
         val request = OneTimeWorkRequestBuilder<LocalTranscriptionWorker>()
+            .setInitialDelay(delayMinutes.coerceIn(0L, 15L), TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder()
                 .setRequiresCharging(true)
                 .setRequiresBatteryNotLow(true)
@@ -122,6 +127,27 @@ class VoiceGrowthApplication : Application() {
             LocalTranscriptionWorker.WORK_NAME,
             ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
+        )
+    }
+
+    /** No periodic ASR wakeups until a model is imported and user opts in. */
+    fun configureLocalAsrPeriodic(enabled: Boolean) {
+        val manager = WorkManager.getInstance(this)
+        if (!enabled) {
+            manager.cancelUniqueWork("VoiceGrowth_LocalTranscription_periodic")
+            manager.cancelUniqueWork(LocalTranscriptionWorker.WORK_NAME)
+            return
+        }
+        manager.enqueueUniquePeriodicWork(
+            "VoiceGrowth_LocalTranscription_periodic",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(15, TimeUnit.MINUTES)
+                .setConstraints(Constraints.Builder()
+                    .setRequiresCharging(true)
+                    .setRequiresBatteryNotLow(true)
+                    .setRequiresStorageNotLow(true)
+                    .build())
+                .build()
         )
     }
 
@@ -166,16 +192,6 @@ class VoiceGrowthApplication : Application() {
 
         fun schedulePeriodicWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
-
-            // Offline inference is opt-in and waits for charging. Disabled by default.
-            workManager.enqueueUniquePeriodicWork(
-                "VoiceGrowth_LocalTranscription_periodic",
-                ExistingPeriodicWorkPolicy.UPDATE,
-                PeriodicWorkRequestBuilder<LocalTranscriptionWorker>(6, TimeUnit.HOURS)
-                    .setConstraints(Constraints.Builder().setRequiresCharging(true)
-                        .setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())
-                    .build()
-            )
 
             val scanRequest = PeriodicWorkRequestBuilder<FolderScanWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiresStorageNotLow(true).build())

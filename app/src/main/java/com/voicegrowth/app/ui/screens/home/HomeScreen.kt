@@ -175,7 +175,7 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                     Column {
                         Text("Audio-first workflow", fontWeight = FontWeight.SemiBold)
                         Text(
-                            "VoiceGrowth records and uploads the original audio. Transcription and clinical analysis happen later through the ChatGPT workflow.",
+                            "VoiceGrowth saves original audio first. Optional offline Whisper creates an unverified transcript while charging. Structured clinical extraction still requires review.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -278,6 +278,11 @@ fun HomeScreen(viewModel: HomeViewModel, onNavigateToSettings: () -> Unit) {
                                 runCatching { shareRecording(context, recording) }.onFailure {
                                     android.widget.Toast.makeText(context, "Cannot share this audio; confirm that the source file is still accessible", android.widget.Toast.LENGTH_LONG).show()
                                 }
+                            },
+                            onShareDraft = {
+                                runCatching { shareTranscriptDraft(context, recording) }.onFailure {
+                                    android.widget.Toast.makeText(context, "Draft transcript could not be shared", android.widget.Toast.LENGTH_LONG).show()
+                                }
                             }
                         )
                     }
@@ -325,11 +330,20 @@ private fun StatsDashboard(recordings: List<RecordingEntity>) {
     val waiting = recordings.count { it.driveAudioFileId.isNullOrBlank() && it.status != ProcessingStatus.FAILED }
     val uploaded = recordings.count { !it.driveAudioFileId.isNullOrBlank() }
     val failed = recordings.count { it.status == ProcessingStatus.FAILED }
+    val draftCount = recordings.count { !it.transcriptPath.isNullOrBlank() }
     Column {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("Waiting", waiting, StatusPending, Modifier.weight(1f))
             Stat("Provider saved", uploaded, StatusUploaded, Modifier.weight(1f))
             Stat("Failed", failed, StatusFailed, Modifier.weight(1f))
+        }
+        if (draftCount > 0) {
+            Text(
+                "Offline ASR drafts: $draftCount (not clinically verified)",
+                modifier = Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
         if (uploaded > 0) {
             Text(
@@ -429,12 +443,32 @@ private fun shareRecording(context: Context, recording: RecordingEntity) {
     context.startActivity(Intent.createChooser(send, "Share approved audio recording"))
 }
 
+/**
+ * Read-only user-triggered export. Never transmits a transcript automatically
+ * to Gemini or another consumer provider.
+ */
+private fun shareTranscriptDraft(context: Context, recording: RecordingEntity) {
+    val draft = File(requireNotNull(recording.transcriptPath))
+    val privateRoot = File(context.filesDir, "transcripts").canonicalPath + File.separator
+    require(draft.isFile && draft.canonicalPath.startsWith(privateRoot)) {
+        "Transcript is outside VoiceGrowth private storage"
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", draft)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/markdown"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Share unverified ASR draft (approved recipients only)"))
+}
+
 @Composable
 private fun RecordingCard(
     recording: RecordingEntity,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onShareDraft: () -> Unit
 ) {
     val date = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.US) }.format(Date(recording.recordedAt))
     val status = statusPresentation(recording)
@@ -452,6 +486,11 @@ private fun RecordingCard(
             }
             Spacer(Modifier.height(8.dp))
             Text("$date • ${formatDuration(recording.durationSeconds)}", style = MaterialTheme.typography.bodySmall)
+            if (!recording.transcriptPath.isNullOrBlank()) {
+                Text("ASR draft saved locally — clinician review required",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
             recording.errorMessage?.let {
                 Spacer(Modifier.height(4.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
@@ -461,6 +500,9 @@ private fun RecordingCard(
                     IconButton(onClick = onRetry) { Icon(Icons.Default.Refresh, "Retry upload") }
                 }
                 IconButton(onClick = onShare) { Icon(Icons.Default.Share, "Share selected audio") }
+                if (!recording.transcriptPath.isNullOrBlank()) {
+                    OutlinedButton(onClick = onShareDraft) { Text("Share ASR draft") }
+                }
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Remove from list") }
             }
         }

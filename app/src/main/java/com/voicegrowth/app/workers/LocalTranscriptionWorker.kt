@@ -2,156 +2,212 @@ package com.voicegrowth.app.workers
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.voicegrowth.app.VoiceGrowthApplication
 import com.voicegrowth.app.data.local.entity.RecordingEntity
+import com.voicegrowth.app.data.preferences.AppSettings
+import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.sync.DriveTreeSyncService
-import com.voicegrowth.app.transcription.LocalAudioWavDecoder
+import com.voicegrowth.app.transcription.AsrCheckpointStore
+import com.voicegrowth.app.transcription.AudioDurationProbe
 import com.voicegrowth.app.transcription.LocalTranscriptPolicy
+import com.voicegrowth.app.transcription.SegmentedAudioWavDecoder
+import com.voicegrowth.app.transcription.TranscriptSegmentPlan
 import dev.ffmpegkit.whisper.Whisper
 import dev.ffmpegkit.whisper.WhisperConfig
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
- * Opt-in pilot, no network inference/API. Processes one short recording at a time
- * only after the original has already been saved to the selected Drive provider.
- * Processing never changes the source-audio upload state or deletes source audio.
+ * Charging-only offline transcription of archived recordings up to 2h.
+ * Stores each completed chunk independently; up to 3 chunks/worker session,
+ * then resumes through a queued worker or the 15-minute periodic scanner.
+ * Never modifies the original audio or its provider-save status.
  */
-class LocalTranscriptionWorker(
-    context: Context,
-    parameters: WorkerParameters
-) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result {
+class LocalTranscriptionWorker(context: Context, parameters: WorkerParameters) :
+    CoroutineWorker(context, parameters) {
+
+    override suspend fun doWork(): Result = serial.withLock {
+        process()
+    }
+
+    private suspend fun process(): Result {
         val app = applicationContext as VoiceGrowthApplication
         val repository = app.container.recordingRepository
         val settings = repository.settingsFlow.first()
         if (!settings.offlineTranscriptionEnabled) return Result.success()
+        if (RecordingStateStore.isRecording(applicationContext)) return Result.success()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val power = applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) {
+                Log.i(TAG, "ASR deferred due to thermal status; periodic WorkManager will retry")
+                return Result.success()
+            }
+        }
 
         val model = settings.offlineWhisperModelPath?.let(::File)
-            ?.takeIf { it.isFile && it.length() > 50_000_000L &&
-                it.canonicalPath.startsWith(File(applicationContext.filesDir, "models").canonicalPath + File.separator) }
-            ?: return Result.success() // first-use model import still required
+            ?.takeIf {
+                it.isFile && it.length() > 50_000_000L &&
+                    it.canonicalPath.startsWith(
+                        File(applicationContext.filesDir, "models").canonicalPath + File.separator
+                    )
+            } ?: return Result.success()
 
-        // Retry transcript transport first, without rerunning expensive inference.
+        // Transport unfinished drafts first without rerunning costly inference.
         val unsynced = repository.getTranscriptSyncCandidates().firstOrNull()
         if (unsynced != null) {
             return try {
                 syncTranscript(unsynced, settings)
-                scheduleMore(app)
+                app.enqueueLocalTranscription(delayMinutes = 2)
                 Result.success()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 Log.w(TAG, "Transcript provider sync failed", e)
-                if (runAttemptCount < MAX_RETRY) Result.retry() else Result.success()
+                if (runAttemptCount < MAX_RETRIES) Result.retry()
+                else {
+                    repository.updateStatus(unsynced.id, unsynced.status,
+                        "Local ASR sync: ${(e.message ?: e.javaClass.simpleName).take(150)}")
+                    Result.success()
+                }
             }
         }
 
-        val candidate = repository.getLocalTranscriptionCandidates(limit = 1).firstOrNull()
+        var candidate = repository.getLocalTranscriptionCandidates(limit = 1).firstOrNull()
             ?: return Result.success()
-        var tempAudio: File? = null
-        var tempWav: File? = null
+        if (candidate.durationSeconds == 0L) {
+            try {
+                val seconds = AudioDurationProbe.seconds(applicationContext, Uri.parse(candidate.uriString))
+                repository.updateDurationIfMissing(candidate.id, seconds)
+                candidate = candidate.copy(durationSeconds = seconds)
+            } catch (error: Exception) {
+                repository.updateStatus(candidate.id, candidate.status,
+                    "Local ASR: ${(error.message ?: "Duration unavailable").take(150)}")
+                return Result.success()
+            }
+        }
+        val checkpoint = try {
+            AsrCheckpointStore(File(applicationContext.filesDir, "asr_checkpoints"), candidate, model)
+        } catch (error: Exception) {
+            repository.updateStatus(candidate.id, candidate.status,
+                "Local ASR: ${(error.message ?: "Invalid recording").take(150)}")
+            return Result.success()
+        }
         try {
-            val inputAudio = File.createTempFile("vg-asr-source-", ".m4a", applicationContext.cacheDir)
-            tempAudio = inputAudio
-            val sourceUri = Uri.parse(candidate.uriString)
-            applicationContext.contentResolver.openInputStream(sourceUri)?.use { input ->
-                inputAudio.outputStream().use(input::copyTo)
-            } ?: error("Original recording no longer readable")
-            val wavAudio = File.createTempFile("vg-asr-decoded-", ".wav", applicationContext.cacheDir)
-            tempWav = wavAudio
-            LocalAudioWavDecoder.convert(inputAudio, wavAudio)
-            val engine = Whisper.loadModel(applicationContext, model.absolutePath)
-            val output = try {
-                Whisper.transcribe(engine, wavAudio.absolutePath, WhisperConfig(language = "auto"))
-            } finally {
-                Whisper.releaseModel(engine)
-            }
-            require(output.text.isNotBlank()) { "No speech recognized; check audio quality" }
-            val transcripts = File(applicationContext.filesDir, "transcripts").apply { mkdirs() }
-            val outFile = File(
-                transcripts,
-                LocalTranscriptPolicy.name(candidate.id, candidate.recordedAt, candidate.source.name, candidate.fileName)
-            )
-            val header = buildString {
-                appendLine("# Draft local transcript — NOT CLINICALLY VERIFIED")
-                appendLine()
-                appendLine("Source: ${candidate.fileName}")
-                appendLine("Engine: offline whisper.cpp (pilot), model: ${model.name}")
-                appendLine("Recorded: ${java.util.Date(candidate.recordedAt)}")
-                appendLine("Warning: Verify all CR numbers, names, species, culture results and doses against source audio.")
-                appendLine()
-                appendLine("## Timestamped recognition output")
-                appendLine()
-                output.segments.forEach {
-                    appendLine("[${it.startMs / 1000}s–${it.endMs / 1000}s] ${it.text}")
+            val started = SystemClock.elapsedRealtime()
+            val source = Uri.parse(candidate.uriString)
+            var progressed = false
+            if (checkpoint.nextMissing() != null) {
+                val engine = Whisper.loadModel(applicationContext, model.absolutePath)
+                try {
+                    var completedThisRun = 0
+                    while (completedThisRun < MAX_CHUNKS_PER_RUN &&
+                        SystemClock.elapsedRealtime() - started < SESSION_MILLIS &&
+                        !isStopped && !RecordingStateStore.isRecording(applicationContext)) {
+                        val nextIndex = checkpoint.nextMissing() ?: break
+                        val window = TranscriptSegmentPlan.window(checkpoint.durationMs, nextIndex)
+                        val wav = File.createTempFile("vg-segment-", ".wav", applicationContext.cacheDir)
+                        try {
+                            SegmentedAudioWavDecoder.convertWindow(applicationContext, source, wav, window)
+                            val output = Whisper.transcribe(engine, wav.absolutePath,
+                                WhisperConfig(language = "auto"))
+                            val segments = JSONArray()
+                            for (s in output.segments) {
+                                segments.put(JSONObject()
+                                    .put("startMs", window.startMs + s.startMs)
+                                    .put("endMs", window.startMs + s.endMs)
+                                    .put("text", s.text))
+                            }
+                            // An empty chunk is valid silence; do not hallucinate text.
+                            checkpoint.save(nextIndex, output.text, segments)
+                            completedThisRun++
+                            progressed = true
+                            setProgress(workDataOf(
+                                "recordingId" to candidate.id,
+                                "completedWindows" to (nextIndex + 1),
+                                "totalWindows" to checkpoint.windows
+                            ))
+                        } finally {
+                            wav.delete()
+                        }
+                    }
+                } finally {
+                    Whisper.releaseModel(engine)
                 }
-                appendLine()
-                appendLine("## Uncorrected transcript")
-                appendLine()
-                appendLine(output.text)
             }
-            // A completed transcript is persisted before cloud sync is attempted.
-            val staging = File(outFile.parentFile, outFile.name + ".partial")
-            staging.writeText(header, Charsets.UTF_8)
-            require(staging.renameTo(outFile)) { "Could not commit transcript atomically" }
-            repository.updateTranscript(candidate.id, outFile.absolutePath, emptyList(),
-                candidate.durationSeconds, candidate.status, System.currentTimeMillis())
-            syncTranscript(candidate.copy(transcriptPath = outFile.absolutePath), settings)
-            scheduleMore(app)
-            return Result.success()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "Local ASR pilot failed for recording ${candidate.id}", e)
-            // No fake clinical transcript. The existing audio transport state is untouched.
-            if (repository.getById(candidate.id)?.transcriptPath != null) {
-                return if (runAttemptCount < MAX_RETRY) Result.retry() else Result.success()
+            if (isStopped) return Result.success()
+
+            if (checkpoint.nextMissing() == null) {
+                val outFile = File(File(applicationContext.filesDir, "transcripts").apply { mkdirs() },
+                    LocalTranscriptPolicy.name(candidate.id, candidate.recordedAt,
+                        candidate.source.name, candidate.fileName))
+                AsrCheckpointStore.writeAtomic(outFile, checkpoint.assembleMarkdown(model.name))
+                // Persist the committed transcript path before any Drive operation.
+                repository.updateTranscript(candidate.id, outFile.absolutePath, emptyList(),
+                    candidate.durationSeconds, candidate.status, System.currentTimeMillis())
+                checkpoint.cleanupAfterCommit()
+                syncTranscript(candidate.copy(transcriptPath = outFile.absolutePath), settings)
+                app.enqueueLocalTranscription(delayMinutes = 2)
+            } else if (progressed) {
+                app.enqueueLocalTranscription(delayMinutes = 2)
             }
-            repository.updateStatus(candidate.id, candidate.status, "Local ASR: ${(e.message ?: e.javaClass.simpleName).take(160)}")
-            scheduleMore(app)
             return Result.success()
-        } finally {
-            tempAudio?.delete()
-            tempWav?.delete()
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            Log.w(TAG, "ASR segment failed for recording ${candidate.id}", e)
+            val stored = repository.getById(candidate.id)
+            if (stored?.transcriptPath != null) {
+                // Transcript safely committed; the next run will retry cloud sync.
+                return if (runAttemptCount < MAX_RETRIES) Result.retry()
+                else Result.success()
+            }
+            repository.updateStatus(candidate.id, candidate.status,
+                "Local ASR: ${(e.message ?: e.javaClass.simpleName).take(150)}")
+            return Result.success() // explicit UI retry clears error; earlier chunks remain
         }
     }
 
-    private suspend fun syncTranscript(
-        record: RecordingEntity,
-        settings: com.voicegrowth.app.data.preferences.AppSettings
-    ) {
+    private suspend fun syncTranscript(record: RecordingEntity, settings: AppSettings) {
         if (record.driveFileId != null) return
-        val tree = settings.driveTreeUri?.let(Uri::parse) ?: error("Choose VoiceGrowth Drive root")
+        val tree = settings.driveTreeUri?.let(Uri::parse) ?: error("Select a VoiceGrowth Drive root")
         val service = DriveTreeSyncService(applicationContext)
         val status = service.inspect(tree)
         require(status.usable) { status.message }
-        // Selecting Audio itself cannot reach sibling Transcripts through SAF.
         require(!status.displayName.equals("Audio", ignoreCase = true)) {
-            "Select VoiceGrowth root rather than Audio to save sibling transcripts"
+            "Select VoiceGrowth root rather than Audio for sibling transcripts"
         }
-        val saved = requireNotNull(record.transcriptPath).let(::File)
-        require(saved.isFile && saved.length() > 0) { "Transcript missing locally" }
-        val result = service.uploadFile(
-            treeUri = tree, localFile = saved, mimeType = "text/markdown",
+        val transcript = requireNotNull(record.transcriptPath).let(::File)
+        require(transcript.isFile && transcript.length() > 0) { "Local draft transcript is missing" }
+        val uploaded = service.uploadFile(
+            treeUri = tree,
+            localFile = transcript,
+            mimeType = "text/markdown",
             recordedAtMillis = record.recordedAt,
             remoteFileName = LocalTranscriptPolicy.name(record.id, record.recordedAt,
                 record.source.name, record.fileName),
             baseHierarchy = LocalTranscriptPolicy.archiveHierarchy(settings.driveFolderHierarchy)
         ).getOrThrow()
-        // content:// provider URI, not a remote Google Drive REST ID.
         (applicationContext as VoiceGrowthApplication).container.recordingRepository
-            .updateTranscriptUpload(record.id, result.fileId, result.webViewLink)
+            .updateTranscriptUpload(record.id, uploaded.fileId, uploaded.webViewLink)
+        // provider saved != Google cloud verified; no claim of remote verification.
     }
-
-    private fun scheduleMore(app: VoiceGrowthApplication) = app.enqueueLocalTranscription()
 
     companion object {
         const val WORK_NAME = "VoiceGrowth_LocalTranscription"
         private const val TAG = "VoiceGrowthASR"
-        private const val MAX_RETRY = 3
+        private const val MAX_RETRIES = 3
+        private const val MAX_CHUNKS_PER_RUN = 3
+        private const val SESSION_MILLIS = 150_000L
+        private val serial = Mutex()
     }
 }
