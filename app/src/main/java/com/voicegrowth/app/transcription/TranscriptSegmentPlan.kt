@@ -11,7 +11,11 @@ internal object TranscriptSegmentPlan {
 
     fun count(durationMs: Long): Int {
         require(durationMs in 1..MAX_RECORDING_SECONDS * 1_000L) { "Unsupported recording duration" }
-        return ((durationMs - 1) / STEP_MILLIS + 1).toInt()
+        val count = ((durationMs - 1) / STEP_MILLIS + 1).toInt()
+        // The preceding window already contains the final <=1-second tail.
+        // Do not send a tiny duplicate clip to Whisper.
+        return if (count > 1 && durationMs - (count - 1) * STEP_MILLIS <= OVERLAP_MILLIS)
+            count - 1 else count
     }
 
     fun window(durationMs: Long, index: Int): Window {
