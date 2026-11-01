@@ -9,6 +9,7 @@ import com.voicegrowth.app.data.local.entity.RecordingEntity
 import com.voicegrowth.app.data.model.ProcessingStatus
 import com.voicegrowth.app.sync.DriveTreeSyncService
 import com.voicegrowth.app.sync.ArchiveFilePolicy
+import com.voicegrowth.app.sync.LongAudioChunker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
@@ -82,6 +83,10 @@ class DriveSyncWorker(
                 }
                 repository.updateAudioUpload(candidate.id, audioResult.fileId)
                 repository.updateStatusResetRetry(candidate.id, ProcessingStatus.UPLOADED, null)
+                // Additional, independently retryable local AAC packaging; never block original archival.
+                if (candidate.fileSizeBytes >= LongAudioChunker.MAX_CHUNK_BYTES) {
+                    LargeAudioChunkSyncWorker.enqueue(applicationContext, candidate.id, settings.wifiOnly)
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

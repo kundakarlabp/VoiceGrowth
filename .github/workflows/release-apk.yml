@@ -75,7 +75,7 @@ jobs:
           test -n "$APKSIGNER"
           "$APKSIGNER" verify --print-certs "$APK"
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name=\x27com.voicegrowth.app\x27.*versionCode=\x2723\x27"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name=\x27com.voicegrowth.app\x27.*versionCode=\x2724\x27"
           sha256sum "$APK"
 
       - name: Upload signed APK

@@ -151,6 +151,9 @@ def scan_audio_files(service, audio_root_id: str | None = None) -> list[dict[str
         for item in list_children(service, folder_id):
             scanned_items += 1
             if item.get("mimeType") == FOLDER_MIME:
+                # Derived audio parts must never be indexed as new clinical source recordings.
+                if str(item.get("name", "")).lower() == "__transcription_parts":
+                    continue
                 if depth < DRIVE_MAX_DEPTH:
                     queue.append((item["id"], depth + 1))
                 continue

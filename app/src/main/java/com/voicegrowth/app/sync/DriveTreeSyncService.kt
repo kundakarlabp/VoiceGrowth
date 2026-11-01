@@ -107,7 +107,8 @@ class DriveTreeSyncService(private val context: Context) {
         localFile: File,
         mimeType: String,
         recordedAtMillis: Long,
-        remoteFileName: String
+        remoteFileName: String,
+        childFolderWithinMonth: String? = null
     ): Result<DriveUploadResult> = withContext(Dispatchers.IO) {
         runCatching {
             require(localFile.exists() && localFile.length() > 0L) { "Local upload file is missing or empty" }
@@ -117,7 +118,8 @@ class DriveTreeSyncService(private val context: Context) {
 
             val year = yearFormat.format(Date(recordedAtMillis))
             val month = monthFormat.format(Date(recordedAtMillis))
-            val segments = DriveDestinationPolicy.relativeSegments(status.displayName, listOf("VoiceGrowth", "Audio")) + listOf(year, month)
+            val segments = DriveDestinationPolicy.relativeSegments(status.displayName, listOf("VoiceGrowth", "Audio")) + listOf(year, month) +
+                (childFolderWithinMonth?.let { listOf(it) } ?: emptyList())
             var parent = root
             for (segment in segments) parent = getOrCreateDirectory(parent, segment)
 
