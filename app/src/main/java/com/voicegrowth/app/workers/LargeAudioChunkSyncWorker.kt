@@ -58,21 +58,23 @@ class LargeAudioChunkSyncWorker(
             val tree = settings.driveTreeUri?.let(Uri::parse) ?: return Result.retry()
             val service = DriveTreeSyncService(applicationContext)
             require(service.inspect(tree).usable) { "Private Drive folder is not writable" }
-            copied = File.createTempFile("vg_part_input_${id}_", ".m4a", applicationContext.cacheDir)
+            val localCopy = File.createTempFile("vg_part_input_${id}_", ".m4a", applicationContext.cacheDir)
+            copied = localCopy
             val source = Uri.parse(row.uriString)
             applicationContext.contentResolver.openInputStream(source)?.use { input ->
-                copied.outputStream().use(input::copyTo)
+                localCopy.outputStream().use(input::copyTo)
             } ?: error("Source audio no longer available on device")
-            require(copied.length() == row.fileSizeBytes) {
+            require(localCopy.length() == row.fileSizeBytes) {
                 "Local source bytes changed; refusing to generate parts"
             }
 
             val stableName = ArchiveFilePolicy.stableName(
                 row.id, row.recordedAt, row.source.name, row.fileName)
-            prepared = LongAudioChunker.prepare(copied, stableName, id, applicationContext.cacheDir)
+            val bundle = LongAudioChunker.prepare(localCopy, stableName, id, applicationContext.cacheDir)
                 ?: return Result.success()
+            prepared = bundle
 
-            for (part in prepared.parts) {
+            for (part in bundle.parts) {
                 service.uploadFile(
                     treeUri = tree,
                     localFile = part.file,
@@ -85,14 +87,14 @@ class LargeAudioChunkSyncWorker(
             // Only publish a manifest after every playable part was uploaded/read back.
             service.uploadFile(
                 treeUri = tree,
-                localFile = prepared.manifest,
+                localFile = bundle.manifest,
                 mimeType = "application/json",
                 recordedAtMillis = row.recordedAt,
-                remoteFileName = prepared.manifest.name,
+                remoteFileName = bundle.manifest.name,
                 childFolderWithinMonth = LongAudioChunker.CHUNK_FOLDER_NAME
             ).getOrThrow()
             prefs.edit().putBoolean(settingsKey, true).apply()
-            Log.i(TAG, "Uploaded ${prepared.parts.size} private audio parts for row ${id}")
+            Log.i(TAG, "Uploaded ${bundle.parts.size} private audio parts for row ${id}")
             return Result.success()
         } catch (e: CancellationException) {
             throw e
