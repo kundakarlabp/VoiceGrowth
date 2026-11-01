@@ -159,7 +159,15 @@ internal object LongAudioChunker {
                 buffer.clear()
                 val size = extractor.readSampleData(buffer, 0)
                 if (size <= 0) break
-                info.set(0, size, timestamp - startUs, extractor.sampleFlags)
+                val sampleFlags = extractor.sampleFlags
+                require(sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED == 0) {
+                    "Encrypted audio sample cannot be repackaged"
+                }
+                // MediaExtractor flags and MediaCodec buffer flags are distinct @IntDefs.
+                val codecFlags = if (sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) {
+                    MediaCodec.BUFFER_FLAG_KEY_FRAME
+                } else 0
+                info.set(0, size, timestamp - startUs, codecFlags)
                 muxer.writeSampleData(outputTrack, buffer, info)
                 written++
                 if (!extractor.advance()) break
