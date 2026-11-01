@@ -25,6 +25,8 @@ import com.voicegrowth.app.scanner.InterruptedRecordingRecovery
 import com.voicegrowth.app.service.CaptureNotificationManager
 import com.voicegrowth.app.service.RecordingStateStore
 import com.voicegrowth.app.workers.DriveSyncWorker
+import com.voicegrowth.app.workers.LargeAudioChunkSyncWorker
+import com.voicegrowth.app.sync.LongAudioChunker
 import com.voicegrowth.app.workers.FolderScanWorker
 import java.util.concurrent.TimeUnit
 import java.io.File
@@ -46,6 +48,27 @@ class VoiceGrowthApplication : Application() {
         createNotificationChannels()
         schedulePeriodicWork(this)
         CaptureNotificationManager.showReady(this)
+        // Resume private part packaging for already-uploaded large originals still on this device.
+        // A persisted completed flag prevents re-uploading parts on subsequent app launches.
+        backgroundScope.launch {
+            runCatching {
+                val settings = container.recordingRepository.settingsFlow.first()
+                val completed = getSharedPreferences("voicegrowth_chunk_transport", Context.MODE_PRIVATE)
+                container.recordingRepository.recordingsFlow.first()
+                    .filter { row ->
+                        !row.driveAudioFileId.isNullOrBlank() &&
+                            row.fileSizeBytes >= LongAudioChunker.MAX_CHUNK_BYTES &&
+                            row.fileName.substringAfterLast('.', "").lowercase() in setOf("m4a", "mp4") &&
+                            !completed.getBoolean("completed_${row.id}", false) &&
+                            File(row.filePath).isFile
+                    }
+                    .take(30).forEach { row ->
+                        LargeAudioChunkSyncWorker.enqueue(this@VoiceGrowthApplication, row.id, settings.wifiOnly)
+                    }
+            }.onFailure { error ->
+                Log.w("VoiceGrowth", "Large-audio packaging discovery failed; originals unchanged", error)
+            }
+        }
         backgroundScope.launch {
             runCatching {
                 val recovered = InterruptedRecordingRecovery(this@VoiceGrowthApplication, container.recordingRepository).recover()
