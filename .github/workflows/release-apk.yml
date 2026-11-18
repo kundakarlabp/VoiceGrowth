@@ -2,13 +2,7 @@ name: Signed Android Release
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - 'app/**'
-      - 'gradle/**'
-      - 'build.gradle.kts'
-      - '.github/workflows/release-apk.yml'
+  # Signed distribution is intentional; normal CI builds/validates every change.
 
 permissions:
   contents: read
